@@ -35,40 +35,31 @@
   <div class="scroller">
   <div class="wrap">
     <div class="section first">
-      <div class="section-title">Effect</div>
-      <div class="effect-card active">
-        <div class="effect-name">Chrome Extrude</div>
-        <div class="hint">Perspective extrusion, bevelled metal front, outline &amp; retro shadow. More effects follow.</div>
+      <div class="section-title">Effects <span class="muted">– click to apply</span></div>
+      <div id="fxGrid" class="fx-grid"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title" id="lookTitle">Looks</div>
+      <div id="lookGrid" class="fx-grid"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Settings</div>
+      <div class="effect-card">
+        <span class="effect-name" id="effectName">–</span>
+        <span class="effect-mode" id="effectMode"></span>
       </div>
-      <div class="row"><span class="ctl-label">Preset</span><select id="preset" class="grow"></select></div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Material</div>
-      <div class="row two">
-        <select id="material"></select>
-        <select id="profile"></select>
-      </div>
-      <div id="secMaterial"></div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Extrusion</div>
-      <div id="secExtrude"></div>
-      <div class="hint">Vanishing point in % of the text box. 50 / 240 = centered, below the text.</div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Outline &amp; Shadow</div>
-      <div id="secOutline"></div>
+      <div id="controls"></div>
+      <div class="hint" id="controlsHint"></div>
       <label class="check"><input type="checkbox" id="expandCanvas"> Expand canvas when the effect doesn't fit</label>
     </div>
 
     <div class="section">
       <div class="section-title">Tools</div>
       <div class="row">
-        <sp-action-button size="s" quiet id="resetAll">Reset</sp-action-button>
-        <sp-action-button size="s" quiet id="selfTest" title="Creates a test document and checks everything">Self-test</sp-action-button>
+        <sp-action-button size="s" quiet id="resetAll">Reset effect</sp-action-button>
+        <sp-action-button size="s" quiet id="selfTest" title="Creates a test document and checks every effect">Self-test</sp-action-button>
       </div>
     </div>
   </div>

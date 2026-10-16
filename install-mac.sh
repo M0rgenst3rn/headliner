@@ -4,6 +4,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 UPIA="/Library/Application Support/Adobe/Adobe Desktop Common/RemoteComponents/UPI/UnifiedPluginInstallerAgent/UnifiedPluginInstallerAgent.app/Contents/MacOS/UnifiedPluginInstallerAgent"
+node "$HERE/tools/bundle.js"
 mkdir -p "$HERE/dist" && rm -f "$HERE/dist/MS-Render.ccx"
 (cd "$HERE/render" && zip -qr "$HERE/dist/MS-Render.ccx" . -x '.*')
 # only remove if installed (removing a missing plugin hangs the installer)

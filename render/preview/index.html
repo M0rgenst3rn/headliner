@@ -3,28 +3,32 @@
 <head>
 <meta charset="utf-8">
 <style>
-  html, body { margin: 0; height: 100%; background: #1d1d1d; overflow: hidden; }
-  canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
-  #msg { position: absolute; left: 6px; bottom: 4px; color: #888; font: 10px -apple-system, sans-serif; }
+  html, body { margin: 0; height: 100%; background: #1d1d1d; overflow: hidden; user-select: none; -webkit-user-select: none; }
+  canvas { position: absolute; left: 0; top: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
+  #ov { cursor: default; }
+  #ov.drag { cursor: crosshair; }
+  #msg { position: absolute; left: 6px; bottom: 4px; color: #888; font: 10px -apple-system, sans-serif; pointer-events: none; }
+  #hint { position: absolute; right: 6px; top: 4px; color: rgba(255,255,255,0.55); font: 9px -apple-system, sans-serif; pointer-events: none; text-shadow: 0 1px 2px #000; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<canvas id="c2"></canvas>
+<canvas id="ov"></canvas>
 <div id="msg">Select a text or shape layer…</div>
+<div id="hint"></div>
+<script src="fx.js"></script>
 <script>
-// MS Render – GPU live preview (WebGL 2). Receives the source (alpha + distance fields) once,
-// then re-renders in milliseconds whenever parameters change.
+// MS Render – live preview + gallery thumbnails.
+// Chrome Extrude renders on the GPU (WebGL 2, milliseconds). All other effects use the shared CPU
+// engine (fx.js = engine.js + effects.js) at preview size. A transparent overlay draws guides and
+// lets the user drag the vanishing point / direction.
 "use strict";
-const canvas = document.getElementById("c");
-const msg = document.getElementById("msg");
+const { E, FX } = window.MSR;
+const canvas = document.getElementById("c"), c2 = document.getElementById("c2"), ov = document.getElementById("ov");
+const msg = document.getElementById("msg"), hint = document.getElementById("hint");
 const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false });
-const send = (o) => { try { window.uxpHost.postMessage(JSON.stringify(o)); } catch (e) { /* no host */ } };
-
-const RAMPS = {
-  chrome: [[0, 0x0a1440], [0.28, 0x3f7fd8], [0.46, 0xdff2ff], [0.5, 0xffffff], [0.505, 0x2c1a0c], [0.68, 0xa86a34], [0.88, 0xf2d6a6], [1, 0x4a2c16]],
-  gold: [[0, 0x3a1a00], [0.3, 0xb8741a], [0.46, 0xfff1b8], [0.5, 0xffffff], [0.505, 0x5a3200], [0.7, 0xd9a03a], [0.9, 0xfff0b0], [1, 0x6a3c08]],
-  silver: [[0, 0x1a1c22], [0.28, 0x8a929e], [0.46, 0xf2f4f8], [0.5, 0xffffff], [0.505, 0x2a2c30], [0.68, 0x7a7e86], [0.88, 0xd8dce2], [1, 0x30333a]],
-};
+const send = (o) => { try { window.uxpHost.postMessage(JSON.stringify(o)); } catch (e) { /* no host (browser harness) */ if (window.onPreviewMessage) window.onPreviewMessage(o); } };
 
 const VS = `#version 300 es
 in vec2 p; void main(){ gl_Position = vec4(p, 0., 1.); }`;
@@ -53,7 +57,6 @@ void main(){
   vec2 x = vec2(floor(gl_FragCoord.x), size.y - 1. - floor(gl_FragCoord.y));
   vec3 L = normalize(vec3(-0.45, -0.75, 0.48));
   vec3 col = vec3(0.); float cov = 0.;
-  // side walls: march toward the vanishing point (sphere tracing on the outside distance field)
   if (s > 0.) {
     float t = 0.0005;
     for (int it = 0; it < 400; it++) {
@@ -104,7 +107,7 @@ vec3 background(vec2 uv){
   if (bg == 1) return vec3(0.12);
   if (bg == 2) { vec2 g = floor(gl_FragCoord.xy / 10.); return mod(g.x + g.y, 2.) < 1. ? vec3(0.85) : vec3(1.); }
   if (bg == 3) return vec3(1.);
-  float y = 1. - uv.y;  // retro sunset + grid
+  float y = 1. - uv.y;
   vec3 c = y < 0.62 ? mix(vec3(0.12, 0.04, 0.27), vec3(0.88, 0.2, 0.5), y / 0.62) : mix(vec3(0.16, 0.03, 0.2), vec3(0.08, 0.03, 0.16), (y - 0.62) / 0.38);
   if (y > 0.62) { float k = (y - 0.62) / 0.38; float rows = fract(sqrt(k) * 9.); float cols = fract((uv.x - 0.5) / max(0.02, k) * 6.); if (rows < 0.06 || cols < 0.03) c = mix(c, vec3(1., 0.24, 0.8), 0.8); }
   return c;
@@ -132,7 +135,7 @@ function program(fs) {
   return p;
 }
 
-let progObj, progComp, src = null, params = null, bg = 0;
+let progObj = null, progComp = null;
 const tex = {};
 let fbo = null, fboTex = null;
 try {
@@ -141,7 +144,7 @@ try {
   const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
   gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-} catch (e) { msg.textContent = "GPU preview unavailable: " + e.message; send({ type: "error", error: String(e.message || e) }); }
+} catch (e) { send({ type: "error", error: "GPU: " + String(e.message || e) }); }
 
 function b64ToBytes(b64) { const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
 function upload(name, data, w, h, isFloat) {
@@ -154,76 +157,288 @@ function upload(name, data, w, h, isFloat) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
 
-function setSource(m) {
-  const t0 = performance.now();
-  src = m;
-  canvas.width = m.w; canvas.height = m.h;
-  upload("a", b64ToBytes(m.alpha), m.w, m.h, false);
-  upload("in", new Float32Array(b64ToBytes(m.dIn).buffer), m.w, m.h, true);
-  upload("out", new Float32Array(b64ToBytes(m.dOut).buffer), m.w, m.h, true);
-  upload("sdf", new Float32Array(b64ToBytes(m.sdfS).buffer), m.w, m.h, true);
-  if (!fboTex) { fboTex = gl.createTexture(); fbo = gl.createFramebuffer(); }
-  gl.bindTexture(gl.TEXTURE_2D, fboTex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, m.w, m.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fboTex, 0);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  msg.textContent = "";
-  send({ type: "sourceLoaded", ms: Math.round(performance.now() - t0), w: m.w, h: m.h });
-  render();
+// ---------------------------------------------------------------- state
+let src = null;            // { alpha, rgb, w, h } preview-size source (unpadded)
+let state = null;          // { effect, values }
+let bg = 0;
+let geo = null;            // what is on screen: { w, h, box, vp?, fx }
+let gpuPad = null;         // padding currently uploaded for the GPU path
+let dragging = false;
+
+// sample text when nothing is selected (gallery)
+function sampleSource(text) {
+  const cv = document.createElement("canvas"), x = cv.getContext("2d");
+  x.font = "100px Impact, 'Arial Black', sans-serif";
+  const w = Math.ceil(x.measureText(text).width) + 8, h = 112;
+  cv.width = w; cv.height = h;
+  x.font = "100px Impact, 'Arial Black', sans-serif"; x.fillStyle = "rgb(255,70,150)"; x.textBaseline = "alphabetic";
+  x.fillText(text, 4, 102);
+  return fromImageData(x.getImageData(0, 0, w, h));
+}
+function fromImageData(id) {
+  const n = id.width * id.height, alpha = new Uint8Array(n), rgb = new Uint8Array(n * 3), d = id.data;
+  for (let i = 0; i < n; i++) { alpha[i] = d[i * 4 + 3]; rgb[i * 3] = d[i * 4]; rgb[i * 3 + 1] = d[i * 4 + 1]; rgb[i * 3 + 2] = d[i * 4 + 2]; }
+  return { alpha, rgb, w: id.width, h: id.height };
+}
+function toCanvas(s) {
+  const cv = document.createElement("canvas"); cv.width = s.w; cv.height = s.h;
+  const x = cv.getContext("2d"), id = x.createImageData(s.w, s.h);
+  for (let i = 0; i < s.w * s.h; i++) { id.data[i * 4] = s.rgb[i * 3]; id.data[i * 4 + 1] = s.rgb[i * 3 + 1]; id.data[i * 4 + 2] = s.rgb[i * 3 + 2]; id.data[i * 4 + 3] = s.alpha[i]; }
+  x.putImageData(id, 0, 0);
+  return cv;
+}
+function rgbaCanvas(rgba, w, h) {
+  const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+  const x = cv.getContext("2d"), id = x.createImageData(w, h);
+  id.data.set(rgba); x.putImageData(id, 0, 0);
+  return cv;
+}
+// 2D version of the shader backgrounds
+function paintBg(x, w, h, kind) {
+  if (kind === 1) { x.fillStyle = "#1f1f1f"; x.fillRect(0, 0, w, h); return; }
+  if (kind === 3) { x.fillStyle = "#fff"; x.fillRect(0, 0, w, h); return; }
+  if (kind === 2) { for (let y = 0; y < h; y += 10) for (let xx = 0; xx < w; xx += 10) { x.fillStyle = ((xx + y) / 10) % 2 ? "#fff" : "#d9d9d9"; x.fillRect(xx, y, 10, 10); } return; }
+  if (kind === 9) { const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#2a2140"); g.addColorStop(1, "#151320"); x.fillStyle = g; x.fillRect(0, 0, w, h); return; }
+  const hz = h * 0.62, g = x.createLinearGradient(0, 0, 0, hz);
+  g.addColorStop(0, "rgb(31,10,69)"); g.addColorStop(1, "rgb(224,51,128)");
+  x.fillStyle = g; x.fillRect(0, 0, w, hz);
+  const g2 = x.createLinearGradient(0, hz, 0, h); g2.addColorStop(0, "rgb(41,8,51)"); g2.addColorStop(1, "rgb(20,8,41)");
+  x.fillStyle = g2; x.fillRect(0, hz, w, h - hz);
+  x.strokeStyle = "rgba(255,61,204,0.8)"; x.lineWidth = 1;
+  for (let i = 1; i <= 9; i++) { const k = (i / 9) ** 2, y = hz + k * (h - hz); x.beginPath(); x.moveTo(0, y); x.lineTo(w, y); x.stroke(); }
+  for (let i = -12; i <= 12; i++) { x.beginPath(); x.moveTo(w / 2 + i * w * 0.012, hz); x.lineTo(w / 2 + i * w * 0.17, h); x.stroke(); }
 }
 
-function uni(p, name) { return gl.getUniformLocation(p, name); }
-function render() {
-  if (!src || !params || !progObj) return;
-  const t0 = performance.now();
-  const P = params, box = src.box, textH = box.h;
-  const vp = [box.x0 + P.vpX / 100 * box.w, box.y0 + P.vpY / 100 * box.h];
-  const ramp = (RAMPS[P.material] || RAMPS.chrome).flatMap(([u, c]) => [u, ((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255]);
-  gl.viewport(0, 0, src.w, src.h);
-  // pass 1
+// ---------------------------------------------------------------- rendering
+function sizeCanvases(w, h) {
+  for (const cv of [canvas, c2, ov]) if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+}
+function renderGPU() {
+  const v = state.values;
+  const lay = E.layout(src.alpha, src.w, src.h, v);
+  if (!lay) return;
+  const extra = Math.ceil(lay.box.h * 0.35), n = lay.need;
+  const want = { l: n.left + extra, t: n.top + extra, r: n.right + extra, b: n.bottom + extra };
+  // re-pad only when needed (and never shrink while dragging – keeps the mapping stable)
+  const p0 = gpuPad;
+  const fits = p0 && p0.src === src && want.l <= p0.l && want.t <= p0.t && want.r <= p0.r && want.b <= p0.b;
+  const tooBig = p0 && !dragging && (p0.l + p0.r + p0.t + p0.b) > 1.6 * (want.l + want.r + want.t + want.b) + 40;
+  if (!fits || tooBig) {
+    const pad = dragging && p0 && p0.src === src ? { l: Math.max(want.l, p0.l), t: Math.max(want.t, p0.t), r: Math.max(want.r, p0.r), b: Math.max(want.b, p0.b) } : want;
+    const P = E.pad(src.alpha, src.w, src.h, pad.l, pad.t, pad.r, pad.b);
+    const box = { x0: lay.box.x0 + pad.l, y0: lay.box.y0 + pad.t, w: lay.box.w, h: lay.box.h };
+    const F = E.fields(P.alpha, P.w, P.h, box.h);
+    upload("a", P.alpha, P.w, P.h, false);
+    upload("in", F.dIn, P.w, P.h, true);
+    upload("out", F.dOut, P.w, P.h, true);
+    upload("sdf", F.sdfS, P.w, P.h, true);
+    if (!fboTex) { fboTex = gl.createTexture(); fbo = gl.createFramebuffer(); }
+    gl.bindTexture(gl.TEXTURE_2D, fboTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, P.w, P.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fboTex, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gpuPad = Object.assign({ src, w: P.w, h: P.h, box }, pad);
+  }
+  const W = gpuPad.w, H = gpuPad.h, box = gpuPad.box, textH = box.h;
+  sizeCanvases(W, H);
+  const vp = [box.x0 + v.vpX / 100 * box.w, box.y0 + v.vpY / 100 * box.h];
+  const ramp = (E.RAMPS[v.material] || E.RAMPS.chrome).flatMap(([u, c]) => [u, ((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255]);
+  const uni = (p, name) => gl.getUniformLocation(p, name);
+  gl.viewport(0, 0, W, H);
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
   gl.useProgram(progObj);
   const bind = (unit, t, name) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex[t]); gl.uniform1i(uni(progObj, name), unit); };
   bind(0, "a", "tA"); bind(1, "in", "tIn"); bind(2, "out", "tOut"); bind(3, "sdf", "tSdf");
-  gl.uniform2f(uni(progObj, "size"), src.w, src.h);
+  gl.uniform2f(uni(progObj, "size"), W, H);
   gl.uniform2f(uni(progObj, "vp"), vp[0], vp[1]);
-  gl.uniform1f(uni(progObj, "s"), P.depth / 100);
-  gl.uniform1f(uni(progObj, "B"), Math.max(2, P.bevel / 100 * textH));
+  gl.uniform1f(uni(progObj, "s"), v.depth / 100);
+  gl.uniform1f(uni(progObj, "B"), Math.max(2, v.bevel / 100 * textH));
   gl.uniform1f(uni(progObj, "top"), box.y0);
   gl.uniform1f(uni(progObj, "textH"), textH);
   gl.uniform1f(uni(progObj, "scale"), textH / 300);
-  gl.uniform1f(uni(progObj, "edgeK"), P.edgeLine / 100);
-  gl.uniform1i(uni(progObj, "profile"), P.profile === "round" ? 1 : 0);
+  gl.uniform1f(uni(progObj, "edgeK"), v.edgeLine / 100);
+  gl.uniform1i(uni(progObj, "profile"), v.profile === "round" ? 1 : 0);
   gl.uniform4fv(uni(progObj, "ramp"), new Float32Array(ramp));
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  // pass 2
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.useProgram(progComp);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, fboTex); gl.uniform1i(uni(progComp, "tObj"), 0);
-  const sw = P.stroke > 0 ? Math.max(1.5, P.stroke / 100 * textH) : 0;
-  gl.uniform2f(uni(progComp, "size"), src.w, src.h);
+  const sw = v.stroke > 0 ? Math.max(1.5, v.stroke / 100 * textH) : 0;
+  gl.uniform2f(uni(progComp, "size"), W, H);
   gl.uniform1f(uni(progComp, "sw"), sw);
-  gl.uniform2f(uni(progComp, "sh"), Math.round(P.shadowX / 100 * textH), Math.round(P.shadowY / 100 * textH));
+  gl.uniform2f(uni(progComp, "sh"), Math.round(v.shadowX / 100 * textH), Math.round(v.shadowY / 100 * textH));
   gl.uniform1i(uni(progComp, "R"), Math.min(24, Math.ceil(sw + 2)));
   gl.uniform1i(uni(progComp, "bg"), bg);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   const px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); // wait for GPU
-  send({ type: "rendered", ms: +(performance.now() - t0).toFixed(1) });
+  geo = { w: W, h: H, box, vp: { x: vp[0], y: vp[1] }, fx: FX.BY_ID.chromeExtrude };
+}
+// CPU path: render the effect, then composite source + effect over the background
+function composite(x, s, r, mode, ox, oy) {
+  const fxC = rgbaCanvas(r.rgba, r.w, r.h), srcC = toCanvas(s);
+  if (mode === "behind") { x.drawImage(fxC, ox - r.offsetX, oy - r.offsetY); x.drawImage(srcC, ox, oy); }
+  else if (mode === "above") { x.drawImage(srcC, ox, oy); x.drawImage(fxC, ox - r.offsetX, oy - r.offsetY); }
+  else x.drawImage(fxC, ox - r.offsetX, oy - r.offsetY);
+}
+function renderCPU() {
+  const fx = FX.BY_ID[state.effect];
+  const r = FX.render(src, state.effect, state.values);
+  if (!r) return;
+  const extra = Math.ceil(r.box.h * 0.35);
+  const W = r.w + 2 * extra, H = r.h + 2 * extra;
+  sizeCanvases(W, H);
+  const x = c2.getContext("2d");
+  x.clearRect(0, 0, W, H);
+  paintBg(x, W, H, bg);
+  composite(x, src, r, fx.mode, extra + r.offsetX, extra + r.offsetY);
+  const box = { x0: r.box.x0 + extra, y0: r.box.y0 + extra, w: r.box.w, h: r.box.h };
+  geo = { w: W, h: H, box, fx };
+}
+let pending = false;
+function render() {
+  if (pending) return;
+  pending = true;
+  requestAnimationFrame(() => {
+    pending = false;
+    if (!src || !state) return;
+    const t0 = performance.now();
+    const fx = FX.BY_ID[state.effect];
+    if (!fx) return;
+    const useGPU = fx.gpu && progObj;
+    try {
+      if (useGPU) renderGPU(); else renderCPU();
+    } catch (e) { send({ type: "error", error: String(e && e.stack || e) }); }
+    canvas.style.visibility = useGPU ? "visible" : "hidden";
+    c2.style.visibility = useGPU ? "hidden" : "visible";
+    ov.style.visibility = "visible";
+    drawGuides();
+    msg.textContent = "";
+    send({ type: "rendered", ms: +(performance.now() - t0).toFixed(1), effect: state.effect, gpu: !!useGPU });
+  });
 }
 
+// ---------------------------------------------------------------- guides + dragging
+function drawGuides() {
+  const x = ov.getContext("2d");
+  x.clearRect(0, 0, ov.width, ov.height);
+  if (!geo) return;
+  const fx = geo.fx, v = state.values, b = geo.box;
+  hint.textContent = fx.drag === "vp" ? "drag: vanishing point" : fx.drag === "dir" ? "drag: direction" : "";
+  ov.className = fx.drag ? "drag" : "";
+  if (!fx.drag) return;
+  const lw = Math.max(1, geo.w / 300);
+  x.lineWidth = lw;
+  if (fx.drag === "vp") {
+    const vp = geo.vp;
+    x.setLineDash([4 * lw, 4 * lw]);
+    x.strokeStyle = "rgba(255,176,0,0.55)";
+    for (const [cx, cy] of [[b.x0, b.y0], [b.x0 + b.w, b.y0], [b.x0, b.y0 + b.h], [b.x0 + b.w, b.y0 + b.h]]) { x.beginPath(); x.moveTo(cx, cy); x.lineTo(vp.x, vp.y); x.stroke(); }
+    x.setLineDash([]);
+    marker(x, vp.x, vp.y, lw);
+  } else {
+    const cx = b.x0 + b.w / 2, cy = b.y0 + b.h / 2, a = v.angle * Math.PI / 180;
+    const len = (v.distance !== undefined ? v.distance : v.length) / 100 * b.h;
+    const ex = cx + Math.cos(a) * len, ey = cy + Math.sin(a) * len;
+    x.strokeStyle = "rgba(255,176,0,0.9)"; x.lineWidth = 2 * lw;
+    x.beginPath(); x.moveTo(cx, cy); x.lineTo(ex, ey); x.stroke();
+    const ah = 7 * lw;
+    x.beginPath(); x.moveTo(ex, ey); x.lineTo(ex - Math.cos(a - 0.45) * ah, ey - Math.sin(a - 0.45) * ah); x.moveTo(ex, ey); x.lineTo(ex - Math.cos(a + 0.45) * ah, ey - Math.sin(a + 0.45) * ah); x.stroke();
+    x.fillStyle = "rgba(255,176,0,0.9)"; x.beginPath(); x.arc(cx, cy, 2.5 * lw, 0, Math.PI * 2); x.fill();
+    marker(x, ex, ey, lw);
+  }
+}
+function marker(x, px, py, lw) {
+  x.strokeStyle = "#000"; x.lineWidth = 3 * lw; x.beginPath(); x.arc(px, py, 6 * lw, 0, Math.PI * 2); x.stroke();
+  x.strokeStyle = "#ffb000"; x.lineWidth = 1.6 * lw; x.beginPath(); x.arc(px, py, 6 * lw, 0, Math.PI * 2); x.stroke();
+  x.beginPath(); x.moveTo(px - 10 * lw, py); x.lineTo(px + 10 * lw, py); x.moveTo(px, py - 10 * lw); x.lineTo(px, py + 10 * lw); x.stroke();
+}
+function toCanvasXY(e) {
+  const r = ov.getBoundingClientRect(), k = Math.min(r.width / ov.width, r.height / ov.height);
+  const ox = (r.width - ov.width * k) / 2, oy = (r.height - ov.height * k) / 2;
+  return { x: (e.clientX - r.left - ox) / k, y: (e.clientY - r.top - oy) / k };
+}
+function dragTo(e) {
+  if (!geo || !state || geo.fx.id !== state.effect) return; // screen still shows the previous effect
+  const fx = geo.fx, b = geo.box, p = toCanvasXY(e);
+  let upd = null;
+  if (fx.drag === "vp") upd = { vpX: Math.round((p.x - b.x0) / b.w * 100 / 5) * 5, vpY: Math.round((p.y - b.y0) / b.h * 100 / 5) * 5 };
+  else if (fx.drag === "dir") upd = FX.BY_ID[fx.id].dragApply(state.values, p.x - (b.x0 + b.w / 2), p.y - (b.y0 + b.h / 2), b);
+  if (!upd) return;
+  Object.assign(state.values, upd);
+  render();
+  send({ type: "drag", effect: state.effect, values: upd, final: e.type === "pointerup" });
+}
+ov.addEventListener("pointerdown", (e) => { if (!geo || !geo.fx.drag) return; dragging = true; try { ov.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } dragTo(e); });
+ov.addEventListener("pointermove", (e) => { if (dragging) dragTo(e); });
+ov.addEventListener("pointerup", (e) => { if (!dragging) return; dragTo(e); dragging = false; render(); });
+
+// ---------------------------------------------------------------- gallery thumbnails
+// Renders each item {key, effect, values} on the current source (or a sample) into a tile and
+// returns a PNG data URL to the panel. Done one tile per tick so the preview stays responsive.
+let thumbJob = 0;
+function scaledSource(s, tw, th, effect) {
+  // fit the text box into the tile, leaving room for the effect
+  const lay = FX.layoutFor(s.alpha, s.w, s.h, "glow", FX.values("glow", { size: 0.1 }));
+  const b = lay ? lay.box : { x0: 0, y0: 0, w: s.w, h: s.h };
+  const k = Math.min(tw * 0.74 / Math.max(1, b.w), th * 0.42 / Math.max(1, b.h));
+  const cv = document.createElement("canvas"); cv.width = tw; cv.height = th;
+  const x = cv.getContext("2d");
+  const up = effect === "fire" || effect === "smoke" ? 0.17 : effect === "drip" || effect === "icicles" ? -0.1 : 0;
+  const cx = tw / 2 - (b.x0 + b.w / 2) * k, cy = th * (0.5 + up) - (b.y0 + b.h / 2) * k;
+  x.imageSmoothingQuality = "high";
+  x.drawImage(toCanvas(s), cx, cy, s.w * k, s.h * k);
+  return fromImageData(x.getImageData(0, 0, tw, th));
+}
+function makeThumbs(m) {
+  const job = ++thumbJob;
+  const base = src || sampleSource("RAD");
+  const items = m.items.slice();
+  const step = () => {
+    if (job !== thumbJob || !items.length) return;
+    const it = items.shift();
+    try {
+      const s = scaledSource(base, m.tw, m.th, it.effect);
+      const fx = FX.BY_ID[it.effect];
+      const r = FX.render(s, it.effect, FX.values(it.effect, it.values));
+      const cv = document.createElement("canvas"); cv.width = m.tw; cv.height = m.th;
+      const x = cv.getContext("2d");
+      paintBg(x, m.tw, m.th, it.effect === "chromeExtrude" ? 0 : 9);
+      if (r) composite(x, s, r, fx.mode, r.offsetX, r.offsetY);
+      send({ type: "thumb", key: it.key, url: cv.toDataURL("image/png") });
+    } catch (e) { send({ type: "error", error: "thumb " + it.key + ": " + String(e && e.message || e) }); }
+    setTimeout(step, 0);
+  };
+  step();
+}
+
+// ---------------------------------------------------------------- messages
+function handle(m) {
+  if (m.cmd === "ping") send({ type: "pong" });
+  else if (m.cmd === "source") {
+    const alpha = b64ToBytes(m.alpha), rgb = m.rgb ? b64ToBytes(m.rgb) : null;
+    src = { alpha, rgb: rgb || new Uint8Array(m.w * m.h * 3).fill(128), w: m.w, h: m.h };
+    gpuPad = null;
+    send({ type: "sourceLoaded", w: m.w, h: m.h });
+    render();
+  }
+  else if (m.cmd === "params") { if (!dragging) state = { effect: m.effect, values: Object.assign({}, m.values) }; bg = m.bg | 0; render(); }
+  else if (m.cmd === "thumbs") makeThumbs(m);
+  else if (m.cmd === "clear") {
+    src = null; geo = null; gpuPad = null;
+    for (const cv of [canvas, c2, ov]) cv.style.visibility = "hidden";
+    hint.textContent = ""; msg.textContent = m.text || "";
+  }
+}
 window.addEventListener("message", (e) => {
   let m = e.data;
   for (let k = 0; k < 3 && typeof m === "string"; k++) { try { m = JSON.parse(m); } catch (err) { break; } }
   if (!m || !m.cmd) return;
-  try {
-    if (m.cmd === "ping") send({ type: "pong" });
-    else if (m.cmd === "source") setSource(m);
-    else if (m.cmd === "params") { params = m.params; bg = m.bg | 0; render(); }
-    else if (m.cmd === "clear") { src = null; gl.clearColor(0.11, 0.11, 0.11, 1); gl.clear(gl.COLOR_BUFFER_BIT); msg.textContent = m.text || ""; }
-  } catch (err) { send({ type: "error", error: String(err.message || err) }); }
+  try { handle(m); } catch (err) { send({ type: "error", error: String(err && err.stack || err) }); }
 });
+window.previewHandle = handle; // browser harness
+ov.style.visibility = "visible";
 send({ type: "ready" });
 </script>
 </body>

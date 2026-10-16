@@ -5,65 +5,58 @@
 <title>MS Render preview harness</title>
 <style>
   body { background: #222; color: #ddd; font: 12px -apple-system, sans-serif; margin: 12px; }
-  .row { display: flex; gap: 12px; align-items: flex-start; }
-  iframe { width: 560px; height: 320px; border: 1px solid #555; }
-  canvas { width: 560px; height: 320px; object-fit: contain; border: 1px solid #555; background: #111; }
-  pre { white-space: pre-wrap; }
+  iframe { width: 420px; height: 210px; border: 1px solid #555; display: block; }
+  button { margin: 2px; }
+  #thumbs img { width: 100px; height: 64px; margin: 2px; border: 1px solid #444; }
+  pre { white-space: pre-wrap; max-height: 200px; overflow: auto; }
 </style>
 </head>
 <body>
-<h3>GPU preview (left) vs CPU engine (right)</h3>
-<div class="row"><iframe id="wv" src="../render/preview/index.html"></iframe><canvas id="cpu"></canvas></div>
+<h3>MS Render preview harness (emulates the panel)</h3>
+<iframe id="wv" src="../render/preview/index.html"></iframe>
+<div id="btns"></div>
+<div id="thumbs"></div>
 <pre id="log"></pre>
+<script src="../render/preview/fx.js"></script>
 <script>
-// Load engine.js (CommonJS) into the page
-const module = { exports: {} };
-</script>
-<script src="../render/engine.js"></script>
-<script>
-const E = module.exports;
-const log = (s) => { document.getElementById("log").textContent += s + "\n"; };
-function textAlpha(text, size) {
+const { FX } = window.MSR;
+const log = (s) => { const el = document.getElementById("log"); el.textContent = s + "\n" + el.textContent.slice(0, 4000); };
+const b64 = (u8) => { let s = ""; for (let i = 0; i < u8.length; i += 32768) s += String.fromCharCode.apply(null, u8.subarray(i, i + 32768)); return btoa(s); };
+function textSource(text, size) {
   const c = document.createElement("canvas"), ctx = c.getContext("2d");
   ctx.font = `${size}px Impact, "Arial Black", sans-serif`;
-  const w = Math.ceil(ctx.measureText(text).width + size * 1.2), h = Math.ceil(size * 1.9);
+  const w = Math.ceil(ctx.measureText(text).width + 4), h = Math.ceil(size * 1.05);
   c.width = w; c.height = h;
-  ctx.font = `${size}px Impact, "Arial Black", sans-serif`; ctx.fillStyle = "#fff"; ctx.textBaseline = "middle";
-  ctx.fillText(text, size * 0.6, h / 2);
-  const d = ctx.getImageData(0, 0, w, h).data, a = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) a[i] = d[i * 4 + 3];
-  return { a, w, h };
+  ctx.font = `${size}px Impact, "Arial Black", sans-serif`; ctx.fillStyle = "#ff4696"; ctx.textBaseline = "top";
+  ctx.fillText(text, 2, 2);
+  const d = ctx.getImageData(0, 0, w, h).data, a = new Uint8Array(w * h), rgb = new Uint8Array(w * h * 3);
+  for (let i = 0; i < w * h; i++) { a[i] = d[i * 4 + 3]; rgb[i * 3] = d[i * 4]; rgb[i * 3 + 1] = d[i * 4 + 1]; rgb[i * 3 + 2] = d[i * 4 + 2]; }
+  return { a, rgb, w, h };
 }
-const b64 = (u8) => { let s = ""; for (let i = 0; i < u8.length; i += 32768) s += String.fromCharCode.apply(null, u8.subarray(i, i + 32768)); return btoa(s); };
-const P = Object.assign({}, E.DEFAULTS, JSON.parse(new URLSearchParams(location.search).get("p") || "{}"));
-const { a, w, h } = textAlpha(new URLSearchParams(location.search).get("t") || "RETRO", 160);
-const lay = E.layout(a, w, h, P);
-const n = lay.need;
-const padded = E.pad(a, w, h, n.left, n.top, n.right, n.bottom);
-const box = Object.assign({}, lay.box, { x0: lay.box.x0 + n.left, y0: lay.box.y0 + n.top });
-const t0 = performance.now();
-const F = E.fields(padded.alpha, padded.w, padded.h, box.h);
-log(`fields ${padded.w}x${padded.h}: ${(performance.now() - t0).toFixed(0)} ms`);
-// CPU reference
-const t1 = performance.now();
-const rgba = E.renderChromeExtrude(padded.alpha, padded.w, padded.h, box, { x: lay.vp.x + n.left, y: lay.vp.y + n.top }, P, F);
-log(`CPU render: ${(performance.now() - t1).toFixed(0)} ms`);
-const cv = document.getElementById("cpu"); cv.width = padded.w; cv.height = padded.h;
-const ctx = cv.getContext("2d"); ctx.fillStyle = "#1f1f1f"; ctx.fillRect(0, 0, padded.w, padded.h);
-const tmp = document.createElement("canvas"); tmp.width = padded.w; tmp.height = padded.h;
-tmp.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(rgba), padded.w, padded.h), 0, 0);
-ctx.drawImage(tmp, 0, 0);
-// GPU preview via postMessage
+const params = new URLSearchParams(location.search);
+const S = textSource(params.get("t") || "RETRO", 70);
 const frame = document.getElementById("wv");
-window.addEventListener("message", (e) => { if (e.source === frame.contentWindow) log("preview: " + JSON.stringify(e.data)); });
+window.received = [];
+let state = { effect: params.get("fx") || "chromeExtrude", values: {} };
+const post = (o) => frame.contentWindow.postMessage(JSON.stringify(o), "*");
+const sendParams = () => post({ cmd: "params", effect: state.effect, values: FX.values(state.effect, state.values), bg: 0 });
+function onMsg(m) {
+  window.received.push(m);
+  if (m.type === "thumb") { const img = document.createElement("img"); img.src = m.url; img.title = m.key; document.getElementById("thumbs").appendChild(img); return; }
+  if (m.type === "drag") { Object.assign(state.values, m.values); }
+  log(JSON.stringify(m).slice(0, 300));
+}
 frame.addEventListener("load", () => {
-  // the preview posts to window.uxpHost – emulate it inside the iframe
-  frame.contentWindow.uxpHost = { postMessage: (m) => log("preview: " + m) };
-  const w2 = frame.contentWindow;
-  w2.postMessage(JSON.stringify({ cmd: "source", w: padded.w, h: padded.h, box, alpha: b64(padded.alpha),
-    dIn: b64(new Uint8Array(F.dIn.buffer)), dOut: b64(new Uint8Array(F.dOut.buffer)), sdfS: b64(new Uint8Array(F.sdfS.buffer)) }), "*");
-  w2.postMessage(JSON.stringify({ cmd: "params", params: P, bg: 1 }), "*");
+  frame.contentWindow.uxpHost = { postMessage: (s) => { let m = s; try { m = JSON.parse(s); } catch (e) { /* */ } onMsg(m); } };
+  post({ cmd: "source", w: S.w, h: S.h, alpha: b64(S.a), rgb: b64(S.rgb) });
+  sendParams();
+  post({ cmd: "thumbs", tw: 200, th: 128, items: FX.EFFECTS.map((e) => ({ key: "fx:" + e.id, effect: e.id, values: {} })) });
 });
+for (const e of FX.EFFECTS) {
+  const b = document.createElement("button"); b.textContent = e.name;
+  b.onclick = () => { state = { effect: e.id, values: {} }; sendParams(); };
+  document.getElementById("btns").appendChild(b);
+}
 </script>
 </body>
 </html>
