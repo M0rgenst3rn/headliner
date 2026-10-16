@@ -281,7 +281,7 @@ function renderFromAlpha(alpha0, w0, h0, p) {
 
 const EFFECTS = [{ id: "chromeExtrude", name: "Chrome Extrude" }];
 const MATERIALS = [{ id: "chrome", name: "Chrome" }, { id: "gold", name: "Gold" }, { id: "silver", name: "Silver" }];
-const PROFILES = [{ id: "chamfer", name: "Chamfer (retro)" }, { id: "round", name: "Round (bubble)" }];
+const PROFILES = [{ id: "chamfer", name: "Chamfer" }, { id: "round", name: "Round" }];
 
 module.exports = { DEFAULTS, RAMPS, EFFECTS, MATERIALS, PROFILES, params, layout, pad, fields, renderChromeExtrude, renderFromAlpha, edt, blur, rampColor };
 

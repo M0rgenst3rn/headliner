@@ -5,7 +5,7 @@ bevels, outlines and hard retro shadows, rendered from your live text so it stay
 Part of the MS family with [MS Distress](https://github.com/M0rgenst3rn/ms-distress) and
 [MS Printer](https://github.com/M0rgenst3rn/ms-printer).
 
-> **Status: Phase 2.** 14 effects with a clickable thumbnail gallery.
+> **Status: Phase 2.** 14 effects with a clickable thumbnail gallery, neutral studio preview and colour wheel.
 
 ![First render in Photoshop](docs/images/first-render-photoshop.jpg)
 

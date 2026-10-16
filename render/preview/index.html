@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <style>
-  html, body { margin: 0; height: 100%; background: #1d1d1d; overflow: hidden; user-select: none; -webkit-user-select: none; }
+  html, body { margin: 0; height: 100%; background: #262626; overflow: hidden; user-select: none; -webkit-user-select: none; }
   canvas { position: absolute; left: 0; top: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
   #ov { cursor: default; }
   #ov.drag { cursor: crosshair; }
@@ -107,10 +107,10 @@ vec3 background(vec2 uv){
   if (bg == 1) return vec3(0.12);
   if (bg == 2) { vec2 g = floor(gl_FragCoord.xy / 10.); return mod(g.x + g.y, 2.) < 1. ? vec3(0.85) : vec3(1.); }
   if (bg == 3) return vec3(1.);
-  float y = 1. - uv.y;
-  vec3 c = y < 0.62 ? mix(vec3(0.12, 0.04, 0.27), vec3(0.88, 0.2, 0.5), y / 0.62) : mix(vec3(0.16, 0.03, 0.2), vec3(0.08, 0.03, 0.16), (y - 0.62) / 0.38);
-  if (y > 0.62) { float k = (y - 0.62) / 0.38; float rows = fract(sqrt(k) * 9.); float cols = fract((uv.x - 0.5) / max(0.02, k) * 6.); if (rows < 0.06 || cols < 0.03) c = mix(c, vec3(1., 0.24, 0.8), 0.8); }
-  return c;
+  if (bg == 4) return vec3(0.93);
+  // neutral studio grey with a soft centre light
+  float r = length((uv - 0.5) * vec2(1.6, 1.));
+  return mix(vec3(0.235), vec3(0.165), clamp(r, 0., 1.));
 }
 void main(){
   ivec2 q = ivec2(gl_FragCoord.xy);
@@ -171,7 +171,7 @@ function sampleSource(text) {
   x.font = "100px Impact, 'Arial Black', sans-serif";
   const w = Math.ceil(x.measureText(text).width) + 8, h = 112;
   cv.width = w; cv.height = h;
-  x.font = "100px Impact, 'Arial Black', sans-serif"; x.fillStyle = "rgb(255,70,150)"; x.textBaseline = "alphabetic";
+  x.font = "100px Impact, 'Arial Black', sans-serif"; x.fillStyle = "rgb(235,235,235)"; x.textBaseline = "alphabetic";
   x.fillText(text, 4, 102);
   return fromImageData(x.getImageData(0, 0, w, h));
 }
@@ -198,15 +198,11 @@ function paintBg(x, w, h, kind) {
   if (kind === 1) { x.fillStyle = "#1f1f1f"; x.fillRect(0, 0, w, h); return; }
   if (kind === 3) { x.fillStyle = "#fff"; x.fillRect(0, 0, w, h); return; }
   if (kind === 2) { for (let y = 0; y < h; y += 10) for (let xx = 0; xx < w; xx += 10) { x.fillStyle = ((xx + y) / 10) % 2 ? "#fff" : "#d9d9d9"; x.fillRect(xx, y, 10, 10); } return; }
-  if (kind === 9) { const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#2a2140"); g.addColorStop(1, "#151320"); x.fillStyle = g; x.fillRect(0, 0, w, h); return; }
-  const hz = h * 0.62, g = x.createLinearGradient(0, 0, 0, hz);
-  g.addColorStop(0, "rgb(31,10,69)"); g.addColorStop(1, "rgb(224,51,128)");
-  x.fillStyle = g; x.fillRect(0, 0, w, hz);
-  const g2 = x.createLinearGradient(0, hz, 0, h); g2.addColorStop(0, "rgb(41,8,51)"); g2.addColorStop(1, "rgb(20,8,41)");
-  x.fillStyle = g2; x.fillRect(0, hz, w, h - hz);
-  x.strokeStyle = "rgba(255,61,204,0.8)"; x.lineWidth = 1;
-  for (let i = 1; i <= 9; i++) { const k = (i / 9) ** 2, y = hz + k * (h - hz); x.beginPath(); x.moveTo(0, y); x.lineTo(w, y); x.stroke(); }
-  for (let i = -12; i <= 12; i++) { x.beginPath(); x.moveTo(w / 2 + i * w * 0.012, hz); x.lineTo(w / 2 + i * w * 0.17, h); x.stroke(); }
+  if (kind === 4) { x.fillStyle = "#ededed"; x.fillRect(0, 0, w, h); return; }
+  // neutral studio grey with a soft centre light (kind 0 = preview, 9 = gallery tiles)
+  const g = x.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.62);
+  g.addColorStop(0, kind === 9 ? "#333333" : "#3c3c3c"); g.addColorStop(1, kind === 9 ? "#262626" : "#2a2a2a");
+  x.fillStyle = g; x.fillRect(0, 0, w, h);
 }
 
 // ---------------------------------------------------------------- rendering
@@ -333,7 +329,7 @@ function drawGuides() {
   if (fx.drag === "vp") {
     const vp = geo.vp;
     x.setLineDash([4 * lw, 4 * lw]);
-    x.strokeStyle = "rgba(255,176,0,0.55)";
+    x.strokeStyle = "rgba(255,255,255,0.45)";
     for (const [cx, cy] of [[b.x0, b.y0], [b.x0 + b.w, b.y0], [b.x0, b.y0 + b.h], [b.x0 + b.w, b.y0 + b.h]]) { x.beginPath(); x.moveTo(cx, cy); x.lineTo(vp.x, vp.y); x.stroke(); }
     x.setLineDash([]);
     marker(x, vp.x, vp.y, lw);
@@ -341,17 +337,17 @@ function drawGuides() {
     const cx = b.x0 + b.w / 2, cy = b.y0 + b.h / 2, a = v.angle * Math.PI / 180;
     const len = (v.distance !== undefined ? v.distance : v.length) / 100 * b.h;
     const ex = cx + Math.cos(a) * len, ey = cy + Math.sin(a) * len;
-    x.strokeStyle = "rgba(255,176,0,0.9)"; x.lineWidth = 2 * lw;
+    x.strokeStyle = "rgba(255,255,255,0.9)"; x.lineWidth = 2 * lw;
     x.beginPath(); x.moveTo(cx, cy); x.lineTo(ex, ey); x.stroke();
     const ah = 7 * lw;
     x.beginPath(); x.moveTo(ex, ey); x.lineTo(ex - Math.cos(a - 0.45) * ah, ey - Math.sin(a - 0.45) * ah); x.moveTo(ex, ey); x.lineTo(ex - Math.cos(a + 0.45) * ah, ey - Math.sin(a + 0.45) * ah); x.stroke();
-    x.fillStyle = "rgba(255,176,0,0.9)"; x.beginPath(); x.arc(cx, cy, 2.5 * lw, 0, Math.PI * 2); x.fill();
+    x.fillStyle = "rgba(255,255,255,0.9)"; x.beginPath(); x.arc(cx, cy, 2.5 * lw, 0, Math.PI * 2); x.fill();
     marker(x, ex, ey, lw);
   }
 }
 function marker(x, px, py, lw) {
   x.strokeStyle = "#000"; x.lineWidth = 3 * lw; x.beginPath(); x.arc(px, py, 6 * lw, 0, Math.PI * 2); x.stroke();
-  x.strokeStyle = "#ffb000"; x.lineWidth = 1.6 * lw; x.beginPath(); x.arc(px, py, 6 * lw, 0, Math.PI * 2); x.stroke();
+  x.strokeStyle = "#ffffff"; x.lineWidth = 1.6 * lw; x.beginPath(); x.arc(px, py, 6 * lw, 0, Math.PI * 2); x.stroke();
   x.beginPath(); x.moveTo(px - 10 * lw, py); x.lineTo(px + 10 * lw, py); x.moveTo(px, py - 10 * lw); x.lineTo(px, py + 10 * lw); x.stroke();
 }
 function toCanvasXY(e) {
@@ -393,7 +389,7 @@ function scaledSource(s, tw, th, effect) {
 }
 function makeThumbs(m) {
   const job = ++thumbJob;
-  const base = src || sampleSource("RAD");
+  const base = src || sampleSource("Ab");
   const items = m.items.slice();
   const step = () => {
     if (job !== thumbJob || !items.length) return;
@@ -404,7 +400,7 @@ function makeThumbs(m) {
       const r = FX.render(s, it.effect, FX.values(it.effect, it.values));
       const cv = document.createElement("canvas"); cv.width = m.tw; cv.height = m.th;
       const x = cv.getContext("2d");
-      paintBg(x, m.tw, m.th, it.effect === "chromeExtrude" ? 0 : 9);
+      paintBg(x, m.tw, m.th, 9);
       if (r) composite(x, s, r, fx.mode, r.offsetX, r.offsetY);
       send({ type: "thumb", key: it.key, url: cv.toDataURL("image/png") });
     } catch (e) { send({ type: "error", error: "thumb " + it.key + ": " + String(e && e.message || e) }); }

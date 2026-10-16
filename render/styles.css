@@ -80,30 +80,35 @@ select { width: 100%; }
 .tile .ph.add { display: flex; align-items: center; justify-content: center; font-size: 20px; background-color: transparent; border: 1px dashed var(--uxp-host-border-color); box-sizing: border-box; }
 .sub { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--uxp-host-border-color); }
 
-/* MS Render – same family, retro gold accent */
-.title b { color: #ffb000; }
-.section-title { color: #ffc23d; }
-.subtitle { font-size: 10px; opacity: 0.65; margin: -2px 0 5px; }
-.preview-box { height: 190px; background-color: #1d1d1d; }
-.preview-box webview { width: 100%; height: 188px; border: none; }
+/* MS Render – modern & minimal: neutral greys, one quiet accent */
+.title b { color: #f2f2f2; }
+.title { opacity: 0.9; }
+.section-title { color: var(--uxp-host-text-color); opacity: 0.55; font-weight: normal; letter-spacing: 1.5px; font-size: 9px; }
+.section { border-top-color: rgba(128, 128, 128, 0.25); }
+.subtitle { font-size: 10px; opacity: 0.5; margin: -2px 0 5px; }
+.preview-box { height: 190px; background-color: #262626; border: none; border-radius: 6px; }
+.preview-box webview { width: 100%; height: 190px; border: none; }
 .bg-select { width: 110px; }
-.effect-card { display: flex; flex-direction: row; align-items: center; justify-content: space-between; border: 1px solid #ffb000; background-color: rgba(255, 176, 0, 0.12); border-radius: 4px; padding: 4px 7px; margin: 2px 0 6px; }
-.effect-name { font-weight: bold; font-size: 11px; }
-.effect-mode { font-size: 9px; opacity: 0.7; }
+.effect-card { display: flex; flex-direction: row; align-items: baseline; justify-content: space-between; padding: 2px 0; margin: 0 0 4px; }
+.effect-name { font-weight: bold; font-size: 12px; }
+.effect-mode { font-size: 9px; opacity: 0.5; }
 
 /* Effect gallery: thumbnail tiles, click = apply */
-.fx-grid { display: flex; flex-direction: row; flex-wrap: wrap; margin: 0 -2px 2px; }
-.fx-tile { width: 98px; margin: 2px; padding: 2px; border: 1px solid var(--uxp-host-border-color); border-radius: 4px; cursor: pointer; }
-.fx-tile:hover { border-color: #ffc23d; }
-.fx-tile.active { border-color: #ffb000; background-color: rgba(255, 176, 0, 0.18); }
-.fx-tile img { width: 92px; height: 57px; border-radius: 3px; background-color: #221c30; }
-.fx-tile .lbl { font-size: 9px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
-.fx-tile.active .lbl { font-weight: bold; color: #ffc23d; }
+.fx-grid { display: flex; flex-direction: row; flex-wrap: wrap; margin: 0 -3px 2px; }
+.fx-tile { width: 98px; margin: 3px; padding: 0; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.fx-tile:hover { border-color: rgba(255, 255, 255, 0.25); }
+.fx-tile.active { border-color: #e8e8e8; }
+.fx-tile img { width: 96px; height: 60px; border-radius: 5px; background-color: #2a2a2a; }
+.fx-tile .lbl { font-size: 9px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 2px 0 3px; opacity: 0.7; }
+.fx-tile.active .lbl { opacity: 1; font-weight: bold; }
 
-/* colour control */
-.color-ctl .swatch.cur { width: 18px; height: 16px; margin-right: 3px; font-size: 9px; text-align: center; }
-.color-ctl .hex { width: 58px; }
-.color-ctl .pal { display: flex; flex-direction: row; flex-wrap: wrap; margin-left: 3px; flex: 1; }
-.swatch.mini { width: 9px; height: 9px; border-radius: 2px; margin: 1px; border: 1px solid rgba(255, 255, 255, 0.25); }
-.swatch.text { font-size: 7px; line-height: 9px; text-align: center; background-color: #444; }
+/* colour control: swatch + hex, wheel pops open below */
 .color-ctl { height: 26px; }
+.color-ctl .swatch.cur { width: 22px; height: 18px; margin-right: 6px; font-size: 9px; text-align: center; border-radius: 4px; cursor: pointer; }
+.color-ctl .hex { width: 70px; font-size: 10px; }
+.wheel-pop { padding: 6px 0 8px 88px; }
+.wheel-pop.hidden { display: none; }
+.wheel { position: relative; width: 150px; height: 150px; margin-bottom: 4px; cursor: crosshair; }
+.wheel img { position: absolute; left: 0; top: 0; width: 150px; height: 150px; }
+.wheel .dot { position: absolute; width: 10px; height: 10px; border-radius: 6px; border: 2px solid #fff; box-sizing: border-box; }
+.wheel-pop .ctl-label { width: 60px; }

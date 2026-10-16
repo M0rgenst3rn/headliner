@@ -18,7 +18,6 @@ const GROUP_PREFIX = "MS Render · ";
 const HIST = "MS Render";
 const XMP_NS = "http://ms-render/1.0/";
 const RENDER_NAMES = new Set(FX.EFFECTS.map((e) => e.name));
-const PALETTE = ["#ff3fa4", "#ffb000", "#ffe14a", "#4dff5c", "#00e5ff", "#3d7bff", "#b45cff", "#ffffff", "#1a0a2e", "#000000"];
 const THUMB = { tw: 200, th: 124 };
 
 let state = loadState();
@@ -491,34 +490,87 @@ function selectRow(parent, c) {
   sel.addEventListener("change", () => { setValues({ [c.key]: sel.value }); changed(); });
   ctl[c.key] = { type: "select", set: (v) => { sel.value = v; } };
 }
+// ---- colour: swatch + hex field; clicking the swatch opens a colour wheel with a brightness slider
+function hexToRgb(h) { const n = parseInt(String(h).slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function rgbToHex(r, g, b) { return "#" + [r, g, b].map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join(""); }
+function hsvToRgb(h, s, v) {
+  const f = (n) => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+  return [f(5) * 255, f(3) * 255, f(1) * 255];
+}
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0;
+  if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [(h * 60 + 360) % 360, mx ? d / mx : 0, mx];
+}
+let openWheel = null; // close function of the open colour wheel
 function colorRow(parent, c, allowEmpty) {
   const row = document.createElement("div");
   row.className = "ctl color-ctl";
-  row.innerHTML = `<span class="ctl-label">${esc(c.label.replace(/\s*\(.*\)$/, ""))}</span><div class="swatch cur"></div><input class="hex" type="text"><div class="pal"></div>`;
+  row.innerHTML = `<span class="ctl-label">${esc(c.label.replace(/\s*\(.*\)$/, ""))}</span><div class="swatch cur" title="Open colour wheel"></div><input class="hex" type="text" placeholder="${allowEmpty ? "layer" : ""}">` +
+    (allowEmpty ? `<sp-action-button size="s" quiet class="layer-col" title="Use the layer's own colour">Layer</sp-action-button>` : "");
   parent.appendChild(row);
-  const cur = row.querySelector(".cur"), hex = row.querySelector(".hex"), pal = row.querySelector(".pal");
-  const colors = allowEmpty ? [""].concat(PALETTE) : PALETTE;
-  for (const col of colors) {
-    const s = document.createElement("div");
-    s.className = "swatch mini" + (col ? "" : " text");
-    if (col) s.style.backgroundColor = col; else s.textContent = "T";
-    s.title = col || "Use the layer's own colour";
-    s.addEventListener("click", () => { setValues({ [c.key]: col }); syncUI(); changed(); });
-    pal.appendChild(s);
-  }
+  const pop = document.createElement("div");
+  pop.className = "wheel-pop hidden";
+  pop.innerHTML = `<div class="wheel"><img src="icons/wheel-10.png" alt=""><div class="dot"></div></div><div class="ctl"><span class="ctl-label">Brightness</span><sp-slider class="ctl-range" min="0" max="100" step="1"></sp-slider></div>`;
+  parent.appendChild(pop);
+  const cur = row.querySelector(".cur"), hex = row.querySelector(".hex");
+  const wheel = pop.querySelector(".wheel"), dot = pop.querySelector(".dot"), wheelImg = pop.querySelector(".wheel img"), bright = pop.querySelector("sp-slider");
+  let hsv = [0, 0, 1];
+  const SIZE = 150;
+  const placeDot = () => {
+    const r = hsv[1] * (SIZE / 2 - 1), a = hsv[0] * Math.PI / 180;
+    dot.style.left = (SIZE / 2 + Math.cos(a) * r - 5) + "px";
+    dot.style.top = (SIZE / 2 - Math.sin(a) * r - 5) + "px";
+    const lv = Math.round(hsv[2] * 10);   // pre-rendered brightness levels (UXP can't darken images via CSS)
+    if (wheelImg.dataset.lv !== String(lv)) { wheelImg.dataset.lv = String(lv); wheelImg.src = `icons/wheel-${lv}.png`; }
+    dot.style.backgroundColor = rgbToHex(...hsvToRgb(...hsv));
+  };
+  const commit = () => { setValues({ [c.key]: rgbToHex(...hsvToRgb(...hsv)) }); syncUI(); changed(); };
+  const fromEvent = (e) => {
+    const b = wheel.getBoundingClientRect();
+    const dx = e.clientX - (b.left + b.width / 2), dy = e.clientY - (b.top + b.height / 2);
+    hsv[0] = (Math.atan2(-dy, dx) * 180 / Math.PI + 360) % 360;
+    hsv[1] = Math.min(1, Math.hypot(dx, dy) / (b.width / 2));
+    if (hsv[2] < 0.05) hsv[2] = 1;   // picking a hue on a black colour should show it
+    placeDot(); commit();
+  };
+  let down = false;
+  wheel.addEventListener("mousedown", (e) => { down = true; fromEvent(e); });
+  wheel.addEventListener("mousemove", (e) => { if (down && e.buttons !== 0) fromEvent(e); else down = false; });
+  wheel.addEventListener("mouseup", () => { down = false; });
+  wheel.addEventListener("mouseleave", () => { down = false; });
+  bright.addEventListener("input", () => { hsv[2] = Number(bright.value) / 100; placeDot(); commit(); });
+  const syncWheel = (v) => { if (v) { hsv = rgbToHsv(...hexToRgb(v)); bright.value = String(Math.round(hsv[2] * 100)); placeDot(); } };
+  const close = () => { pop.className = "wheel-pop hidden"; if (openWheel === close) openWheel = null; };
+  cur.addEventListener("click", () => {
+    if (openWheel === close) return close();
+    if (openWheel) openWheel();
+    syncWheel(curValues()[c.key] || "#ffffff");
+    pop.className = "wheel-pop";
+    openWheel = close;
+  });
+  const lc = row.querySelector(".layer-col");
+  if (lc) lc.addEventListener("click", () => { setValues({ [c.key]: "" }); syncUI(); changed(); close(); });
   hex.addEventListener("change", () => {
     let v = String(hex.value).trim();
     if (v && !v.startsWith("#")) v = "#" + v;
+    if (v.length === 4) v = "#" + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];   // #f0a -> #ff00aa
     if (v && !/^#[0-9a-f]{6}$/i.test(v)) v = curValues()[c.key];
     if (!v && !allowEmpty) v = curValues()[c.key];
     setValues({ [c.key]: v.toLowerCase() });
     syncUI(); changed();
   });
-  ctl[c.key] = { type: "color", set: (v) => { hex.value = v || ""; cur.style.backgroundColor = v || "transparent"; cur.textContent = v ? "" : "T"; } };
+  ctl[c.key] = { type: "color", set: (v) => {
+    hex.value = v || ""; cur.style.backgroundColor = v || "transparent"; cur.textContent = v ? "" : "T";
+    if (!pop.className.includes("hidden") && v && !down) syncWheel(v);
+  } };
 }
 function buildControls() {
   const box = $("controls");
   box.innerHTML = "";
+  openWheel = null;
   for (const k of Object.keys(ctl)) delete ctl[k];
   const fx = fxDef();
   for (const c of fx.controls) {
