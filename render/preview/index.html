@@ -164,6 +164,7 @@ let bg = 0;
 let geo = null;            // what is on screen: { w, h, box, vp?, fx }
 let gpuPad = null;         // padding currently uploaded for the GPU path
 let dragging = false;
+let cpuFrame = null;        // fixed CPU preview frame during a drag
 
 // sample text when nothing is selected (gallery)
 function sampleSource(text) {
@@ -282,14 +283,22 @@ function renderCPU() {
   const fx = FX.BY_ID[state.effect];
   const r = FX.render(src, state.effect, state.values);
   if (!r) return;
-  const extra = Math.ceil(r.box.h * 0.35);
-  const W = r.w + 2 * extra, H = r.h + 2 * extra;
+  // While dragging the frame stays fixed (otherwise the canvas grows with the effect and the point
+  // under the mouse runs away); afterwards it is fitted to the effect again.
+  let W, H, sx, sy;
+  const f = cpuFrame;
+  if (dragging && f && f.effect === state.effect && f.src === src) ({ W, H, sx, sy } = f);
+  else {
+    const extra = Math.ceil(r.box.h * 0.35);
+    W = r.w + 2 * extra; H = r.h + 2 * extra; sx = extra + r.offsetX; sy = extra + r.offsetY;
+    cpuFrame = { W, H, sx, sy, effect: state.effect, src };
+  }
   sizeCanvases(W, H);
   const x = c2.getContext("2d");
   x.clearRect(0, 0, W, H);
   paintBg(x, W, H, bg);
-  composite(x, src, r, fx.mode, extra + r.offsetX, extra + r.offsetY);
-  const box = { x0: r.box.x0 + extra, y0: r.box.y0 + extra, w: r.box.w, h: r.box.h };
+  composite(x, src, r, fx.mode, sx, sy);
+  const box = { x0: r.box.x0 - r.offsetX + sx, y0: r.box.y0 - r.offsetY + sy, w: r.box.w, h: r.box.h };
   geo = { w: W, h: H, box, fx };
 }
 let pending = false;
@@ -320,10 +329,10 @@ function drawGuides() {
   const x = ov.getContext("2d");
   x.clearRect(0, 0, ov.width, ov.height);
   if (!geo) return;
-  const fx = geo.fx, v = state.values, b = geo.box;
-  hint.textContent = fx.drag === "vp" ? "drag: vanishing point" : fx.drag === "dir" ? "drag: direction" : "";
-  ov.className = fx.drag ? "drag" : "";
-  if (!fx.drag) return;
+  const fx = geo.fx, v = state.values, b = geo.box, kind = dragKind();
+  hint.textContent = { vp: "drag: vanishing point", dir: "drag: direction", ab: "drag: bolt start / end" }[kind] || "";
+  ov.className = kind ? "drag" : "";
+  if (!kind) return;
   const lw = Math.max(1, geo.w / 300);
   x.lineWidth = lw;
   if (fx.drag === "vp") {
@@ -333,6 +342,13 @@ function drawGuides() {
     for (const [cx, cy] of [[b.x0, b.y0], [b.x0 + b.w, b.y0], [b.x0, b.y0 + b.h], [b.x0 + b.w, b.y0 + b.h]]) { x.beginPath(); x.moveTo(cx, cy); x.lineTo(vp.x, vp.y); x.stroke(); }
     x.setLineDash([]);
     marker(x, vp.x, vp.y, lw);
+  } else if (kind === "ab") {
+    const [A, B] = abPoints();
+    x.setLineDash([4 * lw, 4 * lw]); x.strokeStyle = "rgba(255,255,255,0.35)";
+    x.beginPath(); x.moveTo(A.x, A.y); x.lineTo(B.x, B.y); x.stroke(); x.setLineDash([]);
+    marker(x, A.x, A.y, lw); marker(x, B.x, B.y, lw);
+    x.fillStyle = "#fff"; x.font = `${Math.round(9 * lw)}px -apple-system, sans-serif`;
+    x.fillText("A", A.x + 9 * lw, A.y - 7 * lw); x.fillText("B", B.x + 9 * lw, B.y - 7 * lw);
   } else {
     const cx = b.x0 + b.w / 2, cy = b.y0 + b.h / 2, a = v.angle * Math.PI / 180;
     const len = (v.distance !== undefined ? v.distance : v.length) / 100 * b.h;
@@ -345,6 +361,18 @@ function drawGuides() {
     marker(x, ex, ey, lw);
   }
 }
+// lightning "point to point" has draggable A/B handles; its "out of the text" mode has none
+function dragKind() {
+  if (!geo) return null;
+  const fx = geo.fx;
+  if (fx.drag === "ab" && state.values.style !== "points") return null;
+  return fx.drag || null;
+}
+function abPoints() {
+  const b = geo.box, v = state.values;
+  return [{ x: b.x0 + v.ax / 100 * b.w, y: b.y0 + v.ay / 100 * b.h }, { x: b.x0 + v.bx / 100 * b.w, y: b.y0 + v.by / 100 * b.h }];
+}
+let abHandle = "b";
 function marker(x, px, py, lw) {
   x.strokeStyle = "#000"; x.lineWidth = 3 * lw; x.beginPath(); x.arc(px, py, 6 * lw, 0, Math.PI * 2); x.stroke();
   x.strokeStyle = "#ffffff"; x.lineWidth = 1.6 * lw; x.beginPath(); x.arc(px, py, 6 * lw, 0, Math.PI * 2); x.stroke();
@@ -361,12 +389,17 @@ function dragTo(e) {
   let upd = null;
   if (fx.drag === "vp") upd = { vpX: Math.round((p.x - b.x0) / b.w * 100 / 5) * 5, vpY: Math.round((p.y - b.y0) / b.h * 100 / 5) * 5 };
   else if (fx.drag === "dir") upd = FX.BY_ID[fx.id].dragApply(state.values, p.x - (b.x0 + b.w / 2), p.y - (b.y0 + b.h / 2), b);
+  else if (dragKind() === "ab") {
+    if (e.type === "pointerdown") { const [A, B] = abPoints(); abHandle = Math.hypot(p.x - A.x, p.y - A.y) < Math.hypot(p.x - B.x, p.y - B.y) ? "a" : "b"; }
+    const px = Math.max(-300, Math.min(400, Math.round((p.x - b.x0) / b.w * 100))), py = Math.max(-400, Math.min(500, Math.round((p.y - b.y0) / b.h * 100)));
+    upd = abHandle === "a" ? { ax: px, ay: py } : { bx: px, by: py };
+  }
   if (!upd) return;
   Object.assign(state.values, upd);
   render();
   send({ type: "drag", effect: state.effect, values: upd, final: e.type === "pointerup" });
 }
-ov.addEventListener("pointerdown", (e) => { if (!geo || !geo.fx.drag) return; dragging = true; try { ov.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } dragTo(e); });
+ov.addEventListener("pointerdown", (e) => { if (!dragKind()) return; dragging = true; try { ov.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } dragTo(e); });
 ov.addEventListener("pointermove", (e) => { if (dragging) dragTo(e); });
 ov.addEventListener("pointerup", (e) => { if (!dragging) return; dragTo(e); dragging = false; render(); });
 
@@ -381,7 +414,7 @@ function scaledSource(s, tw, th, effect) {
   const k = Math.min(tw * 0.74 / Math.max(1, b.w), th * 0.42 / Math.max(1, b.h));
   const cv = document.createElement("canvas"); cv.width = tw; cv.height = th;
   const x = cv.getContext("2d");
-  const up = effect === "fire" || effect === "smoke" ? 0.17 : effect === "drip" || effect === "icicles" ? -0.1 : 0;
+  const up = effect === "lightning" ? 0.1 : effect === "fire" || effect === "smoke" ? 0.17 : effect === "drip" || effect === "icicles" ? -0.1 : 0;
   const cx = tw / 2 - (b.x0 + b.w / 2) * k, cy = th * (0.5 + up) - (b.y0 + b.h / 2) * k;
   x.imageSmoothingQuality = "high";
   x.drawImage(toCanvas(s), cx, cy, s.w * k, s.h * k);
@@ -397,11 +430,11 @@ function makeThumbs(m) {
     try {
       const s = scaledSource(base, m.tw, m.th, it.effect);
       const fx = FX.BY_ID[it.effect];
-      const r = FX.render(s, it.effect, FX.values(it.effect, it.values));
+      const r = FX.render(s, it.effect, FX.values(it.effect, Object.assign({}, fx.thumb || {}, it.values)));
       const cv = document.createElement("canvas"); cv.width = m.tw; cv.height = m.th;
       const x = cv.getContext("2d");
       paintBg(x, m.tw, m.th, 9);
-      if (r) composite(x, s, r, fx.mode, r.offsetX, r.offsetY);
+      if (r) composite(x, s, r, fx.mode, 0, 0);   // s is already tile-sized, so it sits at 0,0
       send({ type: "thumb", key: it.key, url: cv.toDataURL("image/png") });
     } catch (e) { send({ type: "error", error: "thumb " + it.key + ": " + String(e && e.message || e) }); }
     setTimeout(step, 0);

@@ -380,7 +380,7 @@ async function renderInto(ctx, doc, t, p) {
 }
 
 const rendered = new Map(); // groupId -> source signature at last render
-let liveLast = null, livePending = false;
+let liveLast = null, livePending = false, lastRender = null;
 function historyStateId(doc) { try { return doc.activeHistoryState ? doc.activeHistoryState.id : null; } catch (e) { return null; } }
 
 async function applyRender(mode) {
@@ -410,6 +410,7 @@ async function applyRender(mode) {
       } finally { await ctx.hostControl.resumeHistory(hid); }
     }, { commandName: HIST + " render" });
   } catch (e) { err = e.message || String(e); }
+  lastRender = { err, cropped: !!(res && res.r.cropped) };
   liveLast = live && !err ? { docId: doc.id, key: res && res.group ? res.group.id : key, stateId: historyStateId(doc) } : null;
   ignoreEventsUntil = Date.now() + 800;
   busy = false;
@@ -582,6 +583,8 @@ function buildControls() {
     chromeExtrude: "Drag in the preview to move the vanishing point. Values in % of the text height/box.",
     shadow: "Drag in the preview to set angle and length.",
     motionTrail: "Drag in the preview to set direction and length.",
+    lightning: "Point to point: drag the start (A) and end (B) of the bolt in the preview. Seed = a new bolt.",
+    star: "Seed = new positions. Edges = where the light would catch the letters.",
   };
   $("controlsHint").textContent = hints[fx.id] || "Sizes in % of the text height, so a look scales with your text.";
 }
@@ -706,7 +709,11 @@ async function runSelfTest() {
       onDrag({ type: "drag", effect: "shadow", values: { angle: 120, distance: 70 }, final: true });
       onDrag({ type: "drag", effect: "glow", values: { size: 99 } }); // stale effect – must be ignored
       const v = curValues();
-      return { ok: v.angle === 120 && v.distance === 70 && v.size === undefined, angle: v.angle, distance: v.distance };
+      use("lightning", {});
+      onDrag({ type: "drag", effect: "lightning", values: { ax: -40, ay: -90 }, final: false });
+      onDrag({ type: "drag", effect: "lightning", values: { bx: 80, by: 30 }, final: true });
+      const l = curValues();
+      return { ok: v.angle === 120 && v.distance === 70 && v.size === undefined && l.ax === -40 && l.ay === -90 && l.bx === 80 && l.by === 30, angle: v.angle, distance: v.distance, bolt: [l.ax, l.ay, l.bx, l.by] };
     });
     use("chromeExtrude", {});
     await check("Text change → auto-update", async () => {
@@ -739,12 +746,14 @@ async function runSelfTest() {
       use("chromeExtrude", { depth: 50, vpX: 400, vpY: 100 });
       await applyRender("manual");
       const v = await verify(renderParams());
-      v.w0 = w0; v.w1 = Number(doc.width); v.ok = v.ok && v.w1 > w0;
+      v.w0 = w0; v.w1 = Number(doc.width); v.chromeCropped = lastRender.cropped;
+      v.ok = v.ok && v.w1 > w0 && !lastRender.cropped;
+      // tall flames: the canvas may already be big enough from earlier tests – what counts is that nothing is cut off
       use("fire", { height: 200 });
       await applyRender("manual");
       const v2 = await verify(renderParams());
-      v.fireOk = v2.ok; v.h0 = h0; v.h1 = Number(doc.height);
-      v.ok = v.ok && v2.ok && v.h1 > h0;
+      v.fireOk = v2.ok; v.fireCropped = lastRender.cropped; v.h0 = h0; v.h1 = Number(doc.height);
+      v.ok = v.ok && v2.ok && !lastRender.cropped;
       return v;
     });
     await check("Live: several updates = one history step", async () => {

@@ -983,6 +983,208 @@ def({
   },
 });
 
+// ---------------------------------------------------------------- Lightning
+function mulberry(a) {
+  return function () { a |= 0; a = a + 0x6d2b79f5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+// One bolt from (x0,y0) to (x1,y1) by midpoint displacement, plus recursive branches.
+// Pushes capsule segments {x0,y0,x1,y1,w} into segs. Everything scales with the bolt length, so the
+// shape only depends on the seed and the relative positions – not on where the text sits.
+function boltSegments(x0, y0, x1, y1, width, jag, branches, spread, r, segs, level) {
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  if (len < 2) return;
+  let pts = [[x0, y0], [x1, y1]];
+  let disp = len * jag * 0.32;
+  const iters = Math.max(3, Math.min(8, Math.ceil(Math.log2(len / 3))));
+  for (let it = 0; it < iters; it++) {
+    const np = [pts[0]];
+    for (let k = 1; k < pts.length; k++) {
+      const [ax, ay] = pts[k - 1], [bx, by] = pts[k];
+      const dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy) || 1;
+      const o = (r() - 0.5) * disp;
+      np.push([(ax + bx) / 2 - dy / l * o, (ay + by) / 2 + dx / l * o], pts[k]);
+    }
+    pts = np; disp *= 0.55;
+  }
+  const n = pts.length - 1;
+  for (let k = 0; k < n; k++) {
+    const t = k / n;
+    segs.push({ x0: pts[k][0], y0: pts[k][1], x1: pts[k + 1][0], y1: pts[k + 1][1], w: width * (1 - 0.55 * t) });
+  }
+  if (level >= 2 || branches <= 0) return;
+  const dir = Math.atan2(y1 - y0, x1 - x0);
+  for (let k = 2; k < n - 2; k++) {
+    if (r() > branches * (level ? 0.04 : 0.1)) continue;
+    const t = k / n, a = dir + (r() < 0.5 ? -1 : 1) * (0.25 + r() * 0.75) * (0.3 + spread);
+    const bl = len * (0.12 + r() * 0.35) * (1 - t * 0.6);
+    const [sx, sy] = pts[k];
+    boltSegments(sx, sy, sx + Math.cos(a) * bl, sy + Math.sin(a) * bl, width * (1 - 0.55 * t) * 0.55, jag, branches, spread, r, segs, level + 1);
+  }
+}
+// Bolt start/end points for the current settings (in pixel coords of ctx/box)
+function lightningBolts(v, box, ctx) {
+  const r = mulberry((v.seed | 0) * 7919 + 17), H = box.h, list = [];
+  if (v.style === "points" || !ctx) {
+    if (v.style === "points") list.push([box.x0 + v.ax / 100 * box.w, box.y0 + v.ay / 100 * H, box.x0 + v.bx / 100 * box.w, box.y0 + v.by / 100 * H]);
+    return { list, r };
+  }
+  // strike out of the text: start on edge pixels, run along the outward normal
+  const { w, h, alpha } = ctx, sdf = ctx.F.sdfS, cand = [];
+  for (let y = 1; y < h - 1; y += 2) for (let x = 1; x < w - 1; x += 2) {
+    const i = y * w + x;
+    if (alpha[i] >= 128 && (alpha[i - 1] < 128 || alpha[i + 1] < 128 || alpha[i - w] < 128 || alpha[i + w] < 128)) cand.push(i);
+  }
+  const L = v.length / 100 * H;
+  for (let k = 0; k < v.bolts && cand.length; k++) {
+    const i = cand[Math.floor(r() * cand.length)], x = i % w, y = (i / w) | 0;
+    let nx = sdf[i + 1] - sdf[i - 1], ny = sdf[i + w] - sdf[i - w];
+    const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+    // aim away from the text centre (blended with the edge normal) so bolts leave the text
+    const cx = box.x0 + box.w / 2, cy = box.y0 + H / 2, rl = Math.hypot(x - cx, (y - cy) * 1.6) || 1;
+    const dx = nx * 0.6 + (x - cx) / rl * 1.4, dy = ny * 0.6 + (y - cy) * 1.6 / rl * 1.4;
+    const a = Math.atan2(dy, dx) + (r() - 0.5) * 0.6, l = L * (0.6 + 0.4 * r());
+    list.push([x, y, x + Math.cos(a) * l, y + Math.sin(a) * l]);
+  }
+  return { list, r };
+}
+def({
+  id: "lightning", name: "Lightning", mode: "above", drag: "ab",
+  thumb: { ax: 20, ay: -60, bx: 50, by: 15 },   // gallery tiles: keep the bolt inside the small tile
+  defaults: { style: "points", ax: 12, ay: -150, bx: 52, by: 20, bolts: 5, length: 70, thickness: 2.4, jagged: 55, branches: 55, spread: 50, glow: 12, intensity: 90, color: "#7fb4ff", core: "#ffffff", seed: 3 },
+  controls: [
+    { key: "style", label: "Style", type: "select", options: [{ id: "points", name: "Point to point" }, { id: "strike", name: "Out of the text" }] },
+    { key: "color", label: "Glow colour", type: "color" },
+    { key: "core", label: "Core colour", type: "color" },
+    { key: "thickness", label: "Thickness", type: "slider", min: 0.2, max: 6, step: 0.1, unit: "%" },
+    { key: "jagged", label: "Jaggedness", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "branches", label: "Branches", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "spread", label: "Branch spread", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "glow", label: "Glow size", type: "slider", min: 0, max: 30, step: 0.5, unit: "%" },
+    { key: "intensity", label: "Glow strength", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "bolts", label: "Bolts (text)", type: "slider", min: 1, max: 20, step: 1, unit: "" },
+    { key: "length", label: "Length (text)", type: "slider", min: 10, max: 200, step: 1, unit: "%" },
+    { key: "ax", label: "Start X", type: "slider", min: -300, max: 400, step: 1, unit: "%" },
+    { key: "ay", label: "Start Y", type: "slider", min: -400, max: 500, step: 1, unit: "%" },
+    { key: "bx", label: "End X", type: "slider", min: -300, max: 400, step: 1, unit: "%" },
+    { key: "by", label: "End Y", type: "slider", min: -400, max: 500, step: 1, unit: "%" },
+    { key: "seed", label: "Seed", type: "slider", min: 0, max: 999, step: 1, unit: "" },
+  ],
+  presets: {
+    "Strike": {}, "Purple Storm": { color: "#b07bff", branches: 70, seed: 11 },
+    "Energy Burst": { style: "strike", bolts: 9, length: 75, thickness: 1.6 }, "Hairline": { thickness: 1, branches: 90, spread: 80, glow: 7, seed: 21 },
+  },
+  extent: (v, box) => {
+    const H = box.h, g = v.glow / 100 * H * 3 + v.thickness / 100 * H + 6;
+    if (v.style === "strike") { const m = v.length / 100 * H * 1.35 + g; return { l: m, t: m, r: m, b: m }; }
+    const ax = box.x0 + v.ax / 100 * box.w, ay = box.y0 + v.ay / 100 * H, bx = box.x0 + v.bx / 100 * box.w, by = box.y0 + v.by / 100 * H;
+    const len = Math.hypot(bx - ax, by - ay), m = len * (0.2 * v.jagged / 100 + 0.45 * Math.min(1, v.branches / 50)) + g;
+    return {
+      l: Math.max(0, box.x0 - Math.min(ax, bx)) + m, t: Math.max(0, box.y0 - Math.min(ay, by)) + m,
+      r: Math.max(0, Math.max(ax, bx) - (box.x0 + box.w)) + m, b: Math.max(0, Math.max(ay, by) - (box.y0 + H)) + m,
+    };
+  },
+  render(ctx, v) {
+    const { w, h, box } = ctx, N = w * h, H = box.h;
+    const { list, r } = lightningBolts(v, box, ctx);
+    const segs = [], width = Math.max(0.5, v.thickness / 100 * H / 2);
+    for (const [x0, y0, x1, y1] of list) boltSegments(x0, y0, x1, y1, width, v.jagged / 100, v.branches / 100, v.spread / 100, r, segs, 0);
+    // 1) rasterize the core (anti-aliased capsules)
+    const core = new Float32Array(N);
+    for (const s of segs) {
+      const pad = s.w + 1.5;
+      const xa = Math.max(0, Math.floor(Math.min(s.x0, s.x1) - pad)), xb = Math.min(w - 1, Math.ceil(Math.max(s.x0, s.x1) + pad));
+      const ya = Math.max(0, Math.floor(Math.min(s.y0, s.y1) - pad)), yb = Math.min(h - 1, Math.ceil(Math.max(s.y0, s.y1) + pad));
+      const dx = s.x1 - s.x0, dy = s.y1 - s.y0, ll = dx * dx + dy * dy || 1;
+      for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) {
+        const t = Math.max(0, Math.min(1, ((x - s.x0) * dx + (y - s.y0) * dy) / ll));
+        const d = Math.hypot(x - s.x0 - dx * t, y - s.y0 - dy * t);
+        const a = clamp01(s.w - d + 0.5), i = y * w + x;
+        if (a > core[i]) core[i] = a;
+      }
+    }
+    // 2) glow from the exact distance to the core
+    const G = Math.max(0.5, v.glow / 100 * H), I = v.intensity / 100;
+    const dist = v.glow > 0 ? E.edt(w, h, (i) => core[i] >= 0.5) : null;
+    const gc = hex(v.color), cc = hex(v.core), out = new Uint8ClampedArray(N * 4);
+    for (let i = 0; i < N; i++) {
+      const ga = dist ? clamp01((Math.exp(-dist[i] / (G * 0.3)) * 0.95 + Math.exp(-dist[i] / G) * 0.5) * I) : 0;
+      const ca = core[i];
+      const A = ca + ga * (1 - ca);
+      if (A <= 0.002) continue;
+      const k = ca / A;
+      out[i * 4] = gc[0] + (cc[0] - gc[0]) * k; out[i * 4 + 1] = gc[1] + (cc[1] - gc[1]) * k; out[i * 4 + 2] = gc[2] + (cc[2] - gc[2]) * k;
+      out[i * 4 + 3] = A * 255;
+    }
+    return out;
+  },
+});
+
+// ---------------------------------------------------------------- Star (sparkles)
+def({
+  id: "star", name: "Star", mode: "above",
+  defaults: { placement: "edges", count: 6, size: 32, rays: "4", rotation: 0, glow: 50, color: "#ffffff", seed: 8 },
+  controls: [
+    { key: "placement", label: "Placement", type: "select", options: [{ id: "edges", name: "On the edges" }, { id: "inside", name: "On the text" }, { id: "around", name: "Around the text" }] },
+    { key: "color", label: "Colour", type: "color" },
+    { key: "count", label: "Count", type: "slider", min: 1, max: 40, step: 1, unit: "" },
+    { key: "size", label: "Size", type: "slider", min: 2, max: 80, step: 0.5, unit: "%" },
+    { key: "rays", label: "Rays", type: "select", options: [{ id: "4", name: "4 rays" }, { id: "6", name: "6 rays" }, { id: "8", name: "8 rays" }] },
+    { key: "rotation", label: "Rotation", type: "slider", min: 0, max: 90, step: 1, unit: "°" },
+    { key: "glow", label: "Glow", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "seed", label: "Seed", type: "slider", min: 0, max: 999, step: 1, unit: "" },
+  ],
+  presets: { "Sparkle": {}, "Big Twinkle": { count: 2, size: 45, glow: 70 }, "Glitter": { count: 30, size: 10, placement: "inside" }, "Gold Stars": { color: "#ffd27a", rays: "6", placement: "around", count: 10 } },
+  extent: (v, box) => { const m = v.size / 100 * box.h + (v.placement === "around" ? box.h * 0.4 : 0) + 4; return { l: m, t: m, r: m, b: m }; },
+  render(ctx, v) {
+    const { w, h, alpha, box } = ctx, N = w * h, H = box.h, dIn = ctx.F.dIn, dOut = ctx.F.dOut, sdf = ctx.F.sdfS;
+    const r = mulberry((v.seed | 0) * 104729 + 5);
+    // candidate positions
+    const cand = [];
+    for (let y = 1; y < h - 1; y += 2) for (let x = 1; x < w - 1; x += 2) {
+      const i = y * w + x;
+      if (v.placement === "edges") {
+        if (alpha[i] < 128 || dIn[i] > 1.6) continue;
+        // prefer edges facing the light (top-left), like a highlight would
+        const nx = sdf[i + 1] - sdf[i - 1], ny = sdf[i + w] - sdf[i - w];
+        if (nx + ny > 0) continue;
+        cand.push(i);
+      } else if (v.placement === "inside") { if (alpha[i] >= 128 && dIn[i] > 1.5) cand.push(i); }
+      else if (dOut[i] > H * 0.04 && dOut[i] < H * 0.4) cand.push(i);
+    }
+    const S0 = v.size / 100 * H, stars = [];
+    for (let tries = 0; tries < v.count * 30 && stars.length < v.count && cand.length; tries++) {
+      const i = cand[Math.floor(r() * cand.length)], x = i % w, y = (i / w) | 0;
+      const s = S0 * (0.45 + 0.55 * r());
+      if (stars.some((st) => Math.hypot(st.x - x, st.y - y) < (st.s + s) * 0.35)) continue;
+      stars.push({ x, y, s, rot: (v.rotation + (r() - 0.5) * 10) * Math.PI / 180 });
+    }
+    const n = Number(v.rays) || 4, lines = n / 2, gl = v.glow / 100, acc = new Float32Array(N);
+    for (const st of stars) {
+      const R = Math.ceil(st.s) + 2;
+      for (let y = Math.max(0, st.y - R); y <= Math.min(h - 1, st.y + R); y++) for (let x = Math.max(0, st.x - R); x <= Math.min(w - 1, st.x + R); x++) {
+        const dx = x - st.x, dy = y - st.y, rr = Math.hypot(dx, dy);
+        let I = 0;
+        for (let k = 0; k < lines; k++) {
+          const a = st.rot - Math.PI / 2 + k * Math.PI / lines, ca = Math.cos(a), sa = Math.sin(a);
+          const L = st.s * (k % 2 === 1 && n > 4 ? 0.55 : 1);
+          const along = Math.abs(dx * ca + dy * sa), perp = Math.abs(-dx * sa + dy * ca);
+          if (along >= L) continue;
+          const taper = 1 - along / L;
+          I += Math.pow(taper, 1.4) * clamp01(1 - perp / (0.05 * st.s * taper + 0.8)) * 1.2;
+        }
+        I += Math.exp(-rr / (0.08 * st.s + 0.6)) * 1.3 + gl * 0.55 * Math.exp(-rr / (0.25 * st.s + 0.5));
+        const i = y * w + x;
+        acc[i] = Math.min(1, acc[i] + I);
+      }
+    }
+    return solid(ctx, hex(v.color), acc);
+  },
+});
+
+// gallery order: group light effects together
+const ORDER = ["chromeExtrude", "inflate", "bevel", "glass", "shadow", "glow", "lightning", "electrify", "star", "fire", "smoke", "motionTrail", "drip", "icicles", "snow", "waterDrops"];
+EFFECTS.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
+
 const BY_ID = {};
 for (const e of EFFECTS) BY_ID[e.id] = e;
 
