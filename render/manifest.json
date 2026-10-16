@@ -1,0 +1,34 @@
+{
+  "id": "com.linus.msrender",
+  "name": "MS Render",
+  "version": "0.1.1",
+  "main": "index.html",
+  "manifestVersion": 5,
+  "host": { "app": "PS", "minVersion": "24.2.0" },
+  "requiredPermissions": {
+    "localFileSystem": "plugin",
+    "webview": {
+      "allow": "yes",
+      "allowLocalRendering": "yes",
+      "domains": ["https://example.com"],
+      "enableMessageBridge": "localAndRemote"
+    }
+  },
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "renderPanel",
+      "label": { "default": "MS Render" },
+      "minimumSize": { "width": 280, "height": 420 },
+      "maximumSize": { "width": 900, "height": 4000 },
+      "preferredDockedSize": { "width": 340, "height": 780 },
+      "preferredFloatingSize": { "width": 360, "height": 820 },
+      "icons": [
+        { "width": 23, "height": 23, "path": "icons/icon.png", "scale": [1, 2], "theme": ["all"], "species": ["chrome"] }
+      ]
+    }
+  ],
+  "icons": [
+    { "width": 48, "height": 48, "path": "icons/plugin.png", "scale": [1, 2], "theme": ["all"], "species": ["pluginList"] }
+  ]
+}

@@ -1,0 +1,91 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--uxp-host-background-color);
+  color: var(--uxp-host-text-color);
+  font-size: 11px;
+}
+/* Oberer Bereich (Vorschau + Buttons) bleibt stehen, nur der Rest scrollt */
+.layout { display: flex; flex-direction: column; height: 100%; }
+.top { flex-shrink: 0; padding: 6px 8px 4px; border-bottom: 1px solid var(--uxp-host-border-color); }
+.scroller { flex: 1; overflow-y: scroll; }
+.wrap { padding: 0 8px 24px; }
+.section.first { border-top: none; }
+.hidden { display: none; }
+.muted { opacity: 0.6; font-weight: normal; text-transform: none; letter-spacing: 0; }
+
+.header { display: flex; flex-direction: row; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.title { font-size: 11px; letter-spacing: 2px; }
+.layer-name { opacity: 0.6; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.preview-box {
+  height: 110px;
+  border: 1px solid var(--uxp-host-border-color);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: #1d1d1d;
+}
+.preview-box img { max-width: 100%; max-height: 108px; }
+.preview-msg { opacity: 0.6; padding: 6px; text-align: center; }
+
+.section { border-top: 1px solid var(--uxp-host-border-color); margin-top: 6px; padding-top: 5px; }
+.section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; margin-bottom: 3px; }
+
+.row { display: flex; flex-direction: row; align-items: center; margin: 2px 0; }
+.row > * { margin-right: 4px; }
+.row.between { justify-content: space-between; }
+.row.two > * { flex: 1; }
+.grow { flex: 1; }
+
+.tex-grid { display: flex; flex-direction: row; flex-wrap: wrap; margin: 0 -1px 2px; }
+.tile {
+  width: 42px;
+  margin: 1px;
+  padding: 1px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.tile:hover { border-color: var(--uxp-host-border-color); }
+.tile.active { border-color: #2d9cdb; background-color: rgba(45, 156, 219, 0.15); }
+.tile img, .tile .ph { width: 38px; height: 38px; border-radius: 2px; background-color: #333; }
+.tile .lbl { font-size: 8px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Regler: Label | Slider | Zahl in einer Zeile */
+.ctl { display: flex; flex-direction: row; align-items: center; height: 24px; }
+.ctl-label { width: 88px; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctl-range { flex: 1; margin: 0 4px; }
+.ctl-num { width: 38px; text-align: right; font-size: 10px; }
+.ctl-unit { width: 16px; opacity: 0.6; padding-left: 2px; font-size: 10px; }
+
+select { width: 100%; }
+.check { display: flex; flex-direction: row; align-items: center; margin: 2px 0; font-size: 10px; }
+
+.check.live { font-weight: bold; }
+.swatch { width: 22px; height: 18px; border-radius: 2px; border: 1px solid var(--uxp-host-border-color); cursor: pointer; }
+.hex { width: 64px; font-size: 10px; }
+.seed { width: 64px; font-size: 10px; }
+.hint { font-size: 9px; opacity: 0.6; margin: 2px 0 4px; }
+
+.actions { display: flex; flex-direction: row; margin-top: 4px; }
+.actions > * { margin-right: 6px; }
+.status { margin-top: 3px; min-height: 12px; font-size: 10px; opacity: 0.85; }
+.status.err { color: #ff6b6b; opacity: 1; }
+
+.tile .ph.add { display: flex; align-items: center; justify-content: center; font-size: 20px; background-color: transparent; border: 1px dashed var(--uxp-host-border-color); box-sizing: border-box; }
+.sub { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--uxp-host-border-color); }
+
+/* MS Render – same family, retro gold accent */
+.title b { color: #ffb000; }
+.section-title { color: #ffc23d; }
+.subtitle { font-size: 10px; opacity: 0.65; margin: -2px 0 5px; }
+.preview-box { height: 190px; background-color: #1d1d1d; }
+.preview-box webview { width: 100%; height: 188px; border: none; }
+.bg-select { width: 110px; }
+.effect-card { border: 1px solid #ffb000; background-color: rgba(255, 176, 0, 0.12); border-radius: 4px; padding: 5px 7px; margin: 2px 0 6px; }
+.effect-name { font-weight: bold; font-size: 11px; }

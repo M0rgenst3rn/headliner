@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="layout">
+  <div class="top">
+    <div class="header">
+      <span class="title"><b>MS</b> RENDER</span>
+      <span id="sourceName" class="layer-name">–</span>
+    </div>
+    <div class="subtitle">Retro 3D effects for live text &amp; shapes</div>
+
+    <div id="previewBox" class="preview-box"></div>
+    <div class="row between">
+      <select id="bg" class="bg-select">
+        <option value="0">Retro sunset</option>
+        <option value="1">Dark</option>
+        <option value="2">Checker</option>
+        <option value="3">White</option>
+      </select>
+      <label class="check live" title="Update the document while you change settings"><input type="checkbox" id="live"> Live</label>
+      <label class="check" title="Re-render automatically when the text changes"><input type="checkbox" id="autoUpdate"> Auto-update</label>
+    </div>
+
+    <div class="actions">
+      <sp-button size="s" variant="cta" id="render">Render</sp-button>
+      <sp-button size="s" variant="secondary" id="remove">Remove</sp-button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div class="scroller">
+  <div class="wrap">
+    <div class="section first">
+      <div class="section-title">Effect</div>
+      <div class="effect-card active">
+        <div class="effect-name">Chrome Extrude</div>
+        <div class="hint">Perspective extrusion, bevelled metal front, outline &amp; retro shadow. More effects follow.</div>
+      </div>
+      <div class="row"><span class="ctl-label">Preset</span><select id="preset" class="grow"></select></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Material</div>
+      <div class="row two">
+        <select id="material"></select>
+        <select id="profile"></select>
+      </div>
+      <div id="secMaterial"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Extrusion</div>
+      <div id="secExtrude"></div>
+      <div class="hint">Vanishing point in % of the text box. 50 / 240 = centered, below the text.</div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Outline &amp; Shadow</div>
+      <div id="secOutline"></div>
+      <label class="check"><input type="checkbox" id="expandCanvas"> Expand canvas when the effect doesn't fit</label>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Tools</div>
+      <div class="row">
+        <sp-action-button size="s" quiet id="resetAll">Reset</sp-action-button>
+        <sp-action-button size="s" quiet id="selfTest" title="Creates a test document and checks everything">Self-test</sp-action-button>
+      </div>
+    </div>
+  </div>
+  </div>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>
