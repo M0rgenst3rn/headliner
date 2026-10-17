@@ -14,6 +14,10 @@ Part of the MS family with [MS Distress](https://github.com/M0rgenst3rn/ms-distr
 |---|---|---|
 | Chrome Extrude, Inflate, Bevel, Glass, Halftone, Brushed Metal, Diamond Plate, Rust, Wood, Marble, Stone | Shadow (long / drop / perspective), Glow, Corona, Backlight, Fire, Smoke, Motion Trail, Retro Stack, Sticker | Lightning, Electrify, Star, Snow, Water Drops |
 
+**Chrome Extrude** comes in 10 materials – chrome, gold, silver, rose gold, copper, black chrome, ice, synthwave,
+holographic and your own colours (sky and ground of the reflection) – with a movable horizon, shine, colour-gradient
+side walls (the classic 80s look), outline and second outline in any colour and a coloured hard shadow.
+
 **Materials** fill the letters with a procedural texture (no image files): brushed metal in any colour, diamond
 plate, rust with adjustable corrosion, wood (oak, walnut, pine, ebony), marble (Carrara, black & gold, verde, rose)
 and stone (granite, sandstone, slate, lava rock) – with relief, bevel and light angle.
@@ -43,7 +47,7 @@ Every effect has its own looks (presets). Sizes are in % of the text height, so 
 - **Export for print**: the selected group (or all visible layers) as a transparent PNG, trimmed to the design,
   at 300 dpi and a print width in cm. **Hard edges (DTF)** removes all semi-transparent pixels, which DTF printers
   would otherwise turn into halftone fringes. Works on a copy – the document stays untouched
-- **Live mode** (one history step), self-test (127 checks: every effect, look and combo, building stacks, gallery, drag, live, remove, several texts in one document)
+- **Live mode** (one history step), self-test (136 checks: every effect, look and combo, building stacks, gallery, drag, live, remove, several texts in one document)
 
 ## Install (macOS)
 ```bash

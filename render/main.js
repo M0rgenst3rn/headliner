@@ -899,14 +899,26 @@ function colorRow(parent, c, allowEmpty) {
     if (!pop.className.includes("hidden") && v && !down) syncWheel(v);
   } };
 }
+let shownControls = "";
+// rebuild the settings when a change shows or hides controls (e.g. material → Custom colours)
+function refreshControlVisibility() {
+  const fx = fxDef();
+  if (!fx) return;
+  const v = curValues();
+  const keys = fx.controls.filter((c) => !c.when || c.when(v)).map((c) => c.key).join(",");
+  if (keys !== shownControls) { buildControls(); syncUI(); }
+}
 function buildControls() {
   const box = $("controls");
   box.innerHTML = "";
   openWheel = null;
   for (const k of Object.keys(ctl)) delete ctl[k];
   const fx = fxDef();
-  if (!fx) { $("controlsHint").textContent = ""; return; }
-  for (const c of fx.controls) {
+  if (!fx) { $("controlsHint").textContent = ""; shownControls = ""; return; }
+  const v = curValues();
+  const visible = fx.controls.filter((c) => !c.when || c.when(v));   // e.g. custom colours only for "Custom"
+  shownControls = visible.map((c) => c.key).join(",");
+  for (const c of visible) {
     if (c.type === "slider") sliderRow(box, c);
     else if (c.type === "select") selectRow(box, c);
     else if (c.type === "color") colorRow(box, c, fx.defaults[c.key] === "");
@@ -959,6 +971,7 @@ function syncUI() {
 }
 function changed() {
   saveState();
+  refreshControlVisibility();
   sendPreviewParams();
   if (loadingFromLayer || !$("live").checked) return;
   // Live only updates an existing MS Render group. A plain layer gets effects only by an explicit
@@ -1128,6 +1141,16 @@ async function runSelfTest() {
       v.glowBottom = boundsOf(glowL).bottom; v.textBottom = srcB.bottom;
       v.ok = v.ok && v.glowBottom > v.textBottom + (srcB.bottom - srcB.top) * 0.3;
       return v;
+    });
+    await check("Chrome: extra controls appear only when they apply", async () => {
+      use("chromeExtrude", {});
+      const has = (k) => Object.prototype.hasOwnProperty.call(ctl, k);
+      const before = { sky: has("skyTop"), side: has("sideColor"), stroke2Color: has("stroke2Color") };
+      setValues({ material: "custom" }); changed();
+      setValues({ sideMode: "solid" }); changed();
+      setValues({ stroke2: 2 }); changed();
+      const after = { sky: has("skyTop") && has("groundBottom"), side: has("sideColor") && has("sideColor2"), stroke2Color: has("stroke2Color") };
+      return { ok: !before.sky && !before.side && !before.stroke2Color && after.sky && after.side && after.stroke2Color, before, after };
     });
     await check("Preview drag edits the selected effect only", async () => {
       useStack({ entries: [FX.entry("lightning", {}), FX.entry("shadow", {})] });

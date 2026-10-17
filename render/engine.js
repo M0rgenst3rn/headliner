@@ -16,6 +16,13 @@ const DEFAULTS = {
   edgeLine: 45,           // darkening between front and side, %
   stroke: 2,              // outline width, % of text height
   shadowX: 2, shadowY: 3.5, // hard shadow offset, % of text height
+  horizon: 50,            // where sky meets ground in the chrome reflection, % (top → bottom)
+  shine: 70,              // specular highlights, %
+  sideMode: "material",   // material | solid – side walls in the material or a colour gradient
+  sideColor: "#ff3fa4", sideColor2: "#3b0a5c",
+  strokeColor: "#0c0a1e", stroke2: 0, stroke2Color: "#ff3fa4",   // outline + optional second outline
+  shadowColor: "#140628", shadowOpacity: 85,
+  skyTop: "#0a1440", skyHorizon: "#dff2ff", groundHorizon: "#a86a34", groundBottom: "#4a2c16",   // material "custom"
   expandCanvas: true,
 };
 
@@ -23,14 +30,39 @@ const RAMPS = {
   chrome: [[0, 0x0a1440], [0.28, 0x3f7fd8], [0.46, 0xdff2ff], [0.5, 0xffffff], [0.505, 0x2c1a0c], [0.68, 0xa86a34], [0.88, 0xf2d6a6], [1, 0x4a2c16]],
   gold: [[0, 0x3a1a00], [0.3, 0xb8741a], [0.46, 0xfff1b8], [0.5, 0xffffff], [0.505, 0x5a3200], [0.7, 0xd9a03a], [0.9, 0xfff0b0], [1, 0x6a3c08]],
   silver: [[0, 0x1a1c22], [0.28, 0x8a929e], [0.46, 0xf2f4f8], [0.5, 0xffffff], [0.505, 0x2a2c30], [0.68, 0x7a7e86], [0.88, 0xd8dce2], [1, 0x30333a]],
+  rosegold: [[0, 0x3a1416], [0.3, 0xc98a7d], [0.46, 0xffe4dc], [0.5, 0xffffff], [0.505, 0x4a1e1c], [0.7, 0xd49080], [0.9, 0xffd8cc], [1, 0x5a2a24]],
+  blackchrome: [[0, 0x050608], [0.3, 0x2a2e36], [0.46, 0x9aa3b0], [0.5, 0xe8ecf2], [0.505, 0x050506], [0.7, 0x202228], [0.9, 0x6a707a], [1, 0x0a0a0c]],
+  ice: [[0, 0x0b2a4a], [0.3, 0x5fb6e8], [0.46, 0xe6f8ff], [0.5, 0xffffff], [0.505, 0x1d4f75], [0.7, 0x7cc8ee], [0.9, 0xdff5ff], [1, 0x2a5f88]],
+  synthwave: [[0, 0x1a0638], [0.28, 0x7a2bd6], [0.46, 0xff9ee6], [0.5, 0xffffff], [0.505, 0x240a3c], [0.68, 0xff3f8e], [0.88, 0xffc46b], [1, 0x3a0a40]],
+  copper: [[0, 0x2a0e04], [0.3, 0xa8502a], [0.46, 0xffd0b0], [0.5, 0xffffff], [0.505, 0x3a1606], [0.7, 0xc06030], [0.9, 0xffc090], [1, 0x4a1a08]],
+  holo: [[0, 0x7fd7ff], [0.2, 0xc6a6ff], [0.4, 0xffb0e0], [0.5, 0xffffff], [0.6, 0xfff2a8], [0.75, 0xa8ffd8], [0.9, 0x8fc8ff], [1, 0xd8a8ff]],
 };
+const hexInt = (h) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(h || "")); return m ? parseInt(m[1], 16) : 0; };
+const mixInt = (a, b, t) => {
+  let o = 0;
+  for (let k = 16; k >= 0; k -= 8) o |= Math.round(((a >> k) & 255) + (((b >> k) & 255) - ((a >> k) & 255)) * t) << k;
+  return o;
+};
+// The colour ramp of a material (max. 8 stops – the GPU shader uses the same table). "custom" is built from
+// four colours; the horizon setting moves the sky/ground border (0.5 in the base ramps) for every material.
+function rampFor(p) {
+  let r;
+  if (p.material === "custom") {
+    const top = hexInt(p.skyTop), hor = hexInt(p.skyHorizon), gh = hexInt(p.groundHorizon), gb = hexInt(p.groundBottom);
+    r = [[0, top], [0.28, mixInt(top, hor, 0.55)], [0.46, hor], [0.5, mixInt(hor, 0xffffff, 0.7)], [0.505, mixInt(gh, 0x000000, 0.65)],
+      [0.68, gh], [0.88, mixInt(gh, 0xffffff, 0.45)], [1, gb]];
+  } else r = RAMPS[p.material] || RAMPS.chrome;
+  const hz = Math.max(0.15, Math.min(0.85, (p.horizon === undefined ? 50 : p.horizon) / 100));
+  if (Math.abs(hz - 0.5) < 1e-6) return r;
+  return r.map(([u, c]) => [u <= 0.5 ? u * 2 * hz : hz + (u - 0.5) * 2 * (1 - hz), c]);
+}
 
 function params(p) {
   const P = Object.assign({}, DEFAULTS, p || {});
   // percent -> fractions used by the math
   return Object.assign({}, P, {
     _depth: P.depth / 100, _vpX: P.vpX / 100, _vpY: P.vpY / 100, _bevel: P.bevel / 100,
-    _edge: P.edgeLine / 100, _stroke: P.stroke / 100, _shX: P.shadowX / 100, _shY: P.shadowY / 100,
+    _edge: P.edgeLine / 100, _stroke: P.stroke / 100, _stroke2: (P.stroke2 || 0) / 100, _shX: P.shadowX / 100, _shY: P.shadowY / 100,
   });
 }
 
@@ -95,7 +127,7 @@ function layout(alpha0, w0, h0, p) {
   if (bx1 < 0) return null;
   const textW = Math.max(1, bx1 - bx0), textH = Math.max(1, by1 - by0);
   const vpx = bx0 + P._vpX * textW, vpy = by0 + P._vpY * textH, s = P._depth;
-  const margin = Math.ceil((P._stroke + Math.max(Math.abs(P._shX), Math.abs(P._shY))) * textH) + 4;
+  const margin = Math.ceil((P._stroke + P._stroke2 + Math.max(Math.abs(P._shX), Math.abs(P._shY))) * textH) + 4;
   let ex0 = bx0, ey0 = by0, ex1 = bx1, ey1 = by1;
   for (const [cx, cy] of [[bx0, by0], [bx1, by0], [bx0, by1], [bx1, by1]]) {
     const px = cx + (vpx - cx) * s, py = cy + (vpy - cy) * s;
@@ -159,7 +191,9 @@ function renderChromeExtrude(alpha, w, h, box, vp, p, F) {
     height[i] = d >= 1 ? 1 : P.profile === "round" ? Math.sqrt(1 - (1 - d) * (1 - d)) : d;
   }
   const heightS = blur(height, w, h, Math.max(1, B * (P.profile === "round" ? 0.18 : 0.08)));
-  const ramp = RAMPS[P.material] || RAMPS.chrome;
+  const ramp = rampFor(P);
+  const solidSide = P.sideMode === "solid", sc1 = hexInt(P.sideColor), sc2 = hexInt(P.sideColor2);
+  const specK = (P.shine === undefined ? 70 : P.shine) / 100 * 2;
 
   const bil = (f, x, y) => {
     x = Math.max(0, Math.min(w - 1.001, x)); y = Math.max(0, Math.min(h - 1.001, y));
@@ -212,7 +246,8 @@ function renderChromeExtrude(alpha, w, h, box, vp, p, F) {
         const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
         if (capHit[i]) { nx = 0; ny = 0; }
         const lam = Math.max(0, nx * L[0] + ny * L[1]);
-        rampColor(ramp, 0.5 + 0.32 * ny + 0.22 * t, col);
+        if (solidSide) { const c = mixInt(sc1, sc2, t); col[0] = (c >> 16) & 255; col[1] = (c >> 8) & 255; col[2] = c & 255; }
+        else rampColor(ramp, 0.5 + 0.32 * ny + 0.22 * t, col);
         const shade = capHit[i] ? 0.35 : (0.45 + 0.75 * lam) * (1 - 0.45 * t);
         r = col[0] * shade; g = col[1] * shade; b = col[2] * shade; c = 1;
       }
@@ -223,7 +258,7 @@ function renderChromeExtrude(alpha, w, h, box, vp, p, F) {
         const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
         rampColor(ramp, (y - top) / textH + ny * 0.55, col2);
         const hx = L[0], hy = L[1], hz = L[2] + 1, hl = Math.hypot(hx, hy, hz);
-        const spec = Math.pow(Math.max(0, (nx * hx + ny * hy + nz * hz) / hl), 60) * 1.4;
+        const spec = Math.pow(Math.max(0, (nx * hx + ny * hy + nz * hz) / hl), 60) * specK;
         const edge = 1 - P._edge * (1 - Math.min(1, Math.max(0, (dIn[i] - 0.5) / (1.5 * Math.max(1, scale)))));
         const fr = Math.min(255, (col2[0] + 255 * spec) * edge), fg = Math.min(255, (col2[1] + 255 * spec) * edge), fb = Math.min(255, (col2[2] + 255 * spec) * edge);
         r = r * (1 - a) + fr * a; g = g * (1 - a) + fg * a; b = b * (1 - a) + fb * a;
@@ -236,6 +271,10 @@ function renderChromeExtrude(alpha, w, h, box, vp, p, F) {
   // outline + hard shadow around the whole silhouette
   const uOut = edt(w, h, (i) => cov[i] >= 0.5);
   const sw = Math.max(1.5, P._stroke * textH);
+  const sw2 = P._stroke2 > 0 ? Math.max(1, P._stroke2 * textH) : 0, swAll = (P.stroke > 0 ? sw : 0) + sw2;
+  const toRgb = (n) => [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const cStroke = toRgb(hexInt(P.strokeColor)), cStroke2 = toRgb(hexInt(P.stroke2Color)), cShadow = toRgb(hexInt(P.shadowColor));
+  const shOp = (P.shadowOpacity === undefined ? 85 : P.shadowOpacity) / 100;
   const sx = Math.round(P._shX * textH), sy = Math.round(P._shY * textH);
   const out = new Uint8ClampedArray(N * 4);
   for (let y = 0; y < h; y++) {
@@ -244,13 +283,15 @@ function renderChromeExtrude(alpha, w, h, box, vp, p, F) {
       let shadowA = 0;
       const sxp = x - sx, syp = y - sy;
       if (P.stroke > 0 || P.shadowX || P.shadowY) {
-        if (sxp >= 0 && syp >= 0 && sxp < w && syp < h && (sx || sy)) shadowA = Math.max(0, Math.min(1, sw + 1 - uOut[syp * w + sxp]));
+        if (sxp >= 0 && syp >= 0 && sxp < w && syp < h && (sx || sy)) shadowA = Math.max(0, Math.min(1, Math.max(sw, swAll) + 1 - uOut[syp * w + sxp]));
       }
+      const stroke2A = sw2 > 0 ? Math.max(0, Math.min(1, swAll + 0.5 - uOut[i])) : 0;
       const strokeA = P.stroke > 0 ? Math.max(0, Math.min(1, sw + 0.5 - uOut[i])) : 0;
       let r = 0, g = 0, b = 0, A = 0;
       const over = (cr, cg, cb, ca) => { r = r * (1 - ca) + cr * ca; g = g * (1 - ca) + cg * ca; b = b * (1 - ca) + cb * ca; A = A + ca * (1 - A); };
-      if (shadowA > 0) over(20, 6, 40, shadowA * 0.85);
-      if (strokeA > 0) over(12, 10, 30, strokeA);
+      if (shadowA > 0) over(cShadow[0], cShadow[1], cShadow[2], shadowA * shOp);
+      if (stroke2A > 0) over(cStroke2[0], cStroke2[1], cStroke2[2], stroke2A);
+      if (strokeA > 0) over(cStroke[0], cStroke[1], cStroke[2], strokeA);
       if (cov[i] > 0) over(oR[i], oG[i], oB[i], cov[i]);
       out[i * 4] = A > 0 ? r / A : 0;
       out[i * 4 + 1] = A > 0 ? g / A : 0;
@@ -275,7 +316,9 @@ function renderFromAlpha(alpha0, w0, h0, p) {
 }
 
 const EFFECTS = [{ id: "chromeExtrude", name: "Chrome Extrude" }];
-const MATERIALS = [{ id: "chrome", name: "Chrome" }, { id: "gold", name: "Gold" }, { id: "silver", name: "Silver" }];
+const MATERIALS = [{ id: "chrome", name: "Chrome" }, { id: "gold", name: "Gold" }, { id: "silver", name: "Silver" }, { id: "rosegold", name: "Rose Gold" },
+  { id: "copper", name: "Copper" }, { id: "blackchrome", name: "Black Chrome" }, { id: "ice", name: "Ice" }, { id: "synthwave", name: "Synthwave" },
+  { id: "holo", name: "Holographic" }, { id: "custom", name: "Custom colours" }];
 const PROFILES = [{ id: "chamfer", name: "Chamfer" }, { id: "round", name: "Round" }];
 
-module.exports = { DEFAULTS, RAMPS, EFFECTS, MATERIALS, PROFILES, params, layout, pad, fields, renderChromeExtrude, renderFromAlpha, edt, blur, rampColor };
+module.exports = { DEFAULTS, RAMPS, EFFECTS, MATERIALS, PROFILES, params, layout, pad, fields, renderChromeExtrude, renderFromAlpha, edt, blur, rampColor, rampFor, hexInt };
