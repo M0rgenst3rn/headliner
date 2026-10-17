@@ -24,9 +24,13 @@ Every effect has its own looks (presets). Sizes are in % of the text height, so 
   direction (Shadow, Motion Trail) or the start and end of a lightning bolt
 - **Live text stays live**: the source layer goes into a group *"MS Render · …"* together with the render.
   Change the text and the render updates automatically
+- **A rendered group is final**: it holds exactly the render and its source. A new layer Photoshop drops into
+  the group (e.g. new text right after rendering) is moved out automatically, so it stays a normal layer and can
+  get its own effect. **Apply** adds an effect to a plain layer, **Update** changes the selected group; Live only
+  ever updates existing groups
 - **Settings are stored in the layer** (XMP) – select the group later and the panel restores effect and settings
 - **Expands the canvas** when the effect doesn't fit
-- **Live mode** (one history step), self-test (65 checks: every effect and look, gallery, drag, live, remove)
+- **Live mode** (one history step), self-test (69 checks: every effect and look, gallery, drag, live, remove, several texts in one document)
 
 ## Install (macOS)
 ```bash

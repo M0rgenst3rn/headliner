@@ -80,6 +80,20 @@ function log(msg, data) {
 }
 
 // ---------------------------------------------------------------- target resolution
+// An MS Render group holds exactly two layers: the rendered layer and its source. The source is
+// identified by its layer id (stored in the render layer's XMP and cached here) – never by position,
+// so a new layer that Photoshop drops into the group can't be mistaken for the source.
+const groupSource = new Map(); // group id -> source layer id
+function groupParts(group) {
+  // compare by id: Photoshop's DOM hands out a new wrapper object on every access
+  const kids = Array.from(group.layers);
+  const renderLayer = kids.find((k) => RENDER_NAMES.has(k.name)) || null;
+  const others = kids.filter((k) => !renderLayer || k.id !== renderLayer.id);
+  const sid = groupSource.get(group.id);
+  // fallback (not cached yet / v0.2 groups): the oldest layer = smallest id is the original source
+  const source = others.find((k) => k.id === sid) || others.slice().sort((a, b) => a.id - b.id)[0] || null;
+  return { renderLayer, source, foreign: others.filter((k) => !source || k.id !== source.id) };
+}
 // Returns { group, source, renderLayer } for the current selection.
 function resolveTarget(doc) {
   const l = doc && doc.activeLayers[0];
@@ -88,9 +102,9 @@ function resolveTarget(doc) {
   if (isRenderGroup(l)) group = l;
   else if (l.parent && isRenderGroup(l.parent)) group = l.parent;
   if (group) {
-    const kids = group.layers;
-    const renderLayer = kids.find((k) => RENDER_NAMES.has(k.name)) || null;
-    const source = kids.find((k) => !RENDER_NAMES.has(k.name)) || null;
+    const { renderLayer, source, foreign } = groupParts(group);
+    // a layer that doesn't belong to the effect (e.g. new text created while the group was selected)
+    if (foreign.some((k) => k.id === l.id)) return { group: null, source: null, renderLayer: null, foreignIn: group, error: "This layer sits inside an MS Render group – moving it out…" };
     return { group, source, renderLayer };
   }
   if (isGroup(l)) return { group: null, source: null, renderLayer: null, error: "Select a text or shape layer (not a group)." };
@@ -104,12 +118,12 @@ function sourceSignature(layer) {
 }
 
 // ---------------------------------------------------------------- XMP params
-function xmpFor(p) {
-  const json = JSON.stringify({ effect: p.effect, values: p.values }).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+function xmpFor(p, sourceId) {
+  const json = JSON.stringify({ effect: p.effect, values: p.values, sourceId: sourceId || null }).replace(/&/g, "&amp;").replace(/</g, "&lt;");
   return `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:msr="${XMP_NS}"><msr:params>${json}</msr:params></rdf:Description></rdf:RDF></x:xmpmeta>`;
 }
-async function writeLayerParams(layerId, p) {
-  await batchPlay([{ _obj: "set", _target: [{ _ref: "property", _property: "XMPMetadataAsUTF8" }, { _ref: "layer", _id: layerId }], to: { _obj: "layer", XMPMetadataAsUTF8: xmpFor(p) } }], {});
+async function writeLayerParams(layerId, p, sourceId) {
+  await batchPlay([{ _obj: "set", _target: [{ _ref: "property", _property: "XMPMetadataAsUTF8" }, { _ref: "layer", _id: layerId }], to: { _obj: "layer", XMPMetadataAsUTF8: xmpFor(p, sourceId) } }], {});
 }
 async function readLayerParams(layerId) {
   try {
@@ -121,7 +135,7 @@ async function readLayerParams(layerId) {
     // v0.1 stored the Chrome Extrude values flat
     if (!o.effect || !o.values) return { effect: "chromeExtrude", values: FX.values("chromeExtrude", o) };
     if (!FX.BY_ID[o.effect]) return null;
-    return { effect: o.effect, values: FX.values(o.effect, o.values) };
+    return { effect: o.effect, values: FX.values(o.effect, o.values), sourceId: o.sourceId || null };
   } catch (e) { return null; }
 }
 
@@ -187,11 +201,13 @@ async function refreshPreviewSource() {
   };
   if (!doc) return clear("Open a document…");
   const t = resolveTarget(doc);
+  if (t && t.foreignIn) { setTimeout(async () => { if (await ejectForeignLayers()) refreshPreviewSource(); }, 50); }
+  setTargetUI(t);
   if (!t || !t.source) return clear((t && t.error) || "Select a text or shape layer…");
-  $("sourceName").textContent = t.group ? t.group.name.slice(GROUP_PREFIX.length) : t.source.name;
   // Selecting an existing MS Render group restores its settings (incl. the effect)
   if (t.renderLayer && !loadingFromLayer) {
     const saved = await readLayerParams(t.renderLayer.id);
+    if (saved && saved.sourceId) groupSource.set(t.group.id, saved.sourceId);
     if (saved && paramsKey(saved) !== paramsKey(renderParams())) {
       loadingFromLayer = true;
       const effChanged = saved.effect !== state.effect;
@@ -229,6 +245,22 @@ async function refreshPreviewSource() {
 }
 function sendPreviewParams() {
   wvPost({ cmd: "params", effect: state.effect, values: curValues(), bg: Number($("bg").value) });
+}
+
+// Live mode only ever touches an existing MS Render group
+function liveTarget() { const doc = app.activeDocument; const t = doc && resolveTarget(doc); return !!(t && t.group); }
+// Header + main button tell whether you're editing an existing effect or adding a new one
+function setTargetUI(t) {
+  const name = $("sourceName"), btn = $("render");
+  if (t && t.group) {
+    name.textContent = "✦ " + t.group.name.slice(GROUP_PREFIX.length);
+    name.title = "Editing this MS Render group – changes update it";
+    btn.textContent = "Update";
+  } else if (t && t.source) {
+    name.textContent = t.source.name;
+    name.title = "Plain layer – click an effect or Apply to add one";
+    btn.textContent = "Apply";
+  } else { name.textContent = "–"; name.title = ""; btn.textContent = "Apply"; }
 }
 
 // ---------------------------------------------------------------- gallery
@@ -305,7 +337,7 @@ function onDrag(m) {
   setValues(m.values);
   syncUI(); saveState();
   if (m.final) debouncedPreviewSync();
-  if (!loadingFromLayer && $("live").checked) debouncedLive();
+  if (!loadingFromLayer && $("live").checked && liveTarget()) debouncedLive();
 }
 
 // ---------------------------------------------------------------- final render
@@ -371,7 +403,8 @@ async function renderInto(ctx, doc, t, p) {
   }
   // behind-effects go below the source inside the group
   if (fx.mode === "behind") await rl.move(source, constants.ElementPlacement.PLACEAFTER);
-  await writeLayerParams(rl.id, p);
+  await writeLayerParams(rl.id, p, source.id);
+  if (group) groupSource.set(group.id, source.id);
   source.visible = fx.mode !== "replace";
   if (group) await selectLayer(group.id);
   rendered.set(group ? group.id : 0, sourceSignature(source));
@@ -383,21 +416,22 @@ const rendered = new Map(); // groupId -> source signature at last render
 let liveLast = null, livePending = false, lastRender = null;
 function historyStateId(doc) { try { return doc.activeHistoryState ? doc.activeHistoryState.id : null; } catch (e) { return null; } }
 
-async function applyRender(mode) {
-  // mode: "manual" | "live" | "auto"
+async function applyRender(mode, pOverride) {
+  // mode: "manual" | "live" | "auto"; pOverride: render with these settings instead of the panel's
   const live = mode === "live";
   if (busy) { if (live) livePending = true; return; }
   const doc = app.activeDocument;
   if (!doc) return setStatus("Open a document first.", true);
   const t = resolveTarget(doc);
   if (!t || !t.source) return setStatus((t && t.error) || "Select a text or shape layer.", true);
+  if (live && !t.group) return;   // Live never adds an effect to a plain layer (selection may have changed)
   busy = true;
-  setStatus(live ? "Live update…" : `Rendering ${fxDef().name}…`);
+  setStatus(live ? "Live update…" : `Rendering ${FX.BY_ID[(pOverride || state).effect].name}…`);
   const t0 = Date.now();
   let err = null;
   const key = t.group ? t.group.id : t.source.id;
   const replaceLast = live && liveLast && liveLast.docId === doc.id && liveLast.key === key && liveLast.stateId === historyStateId(doc);
-  const p = renderParams();
+  const p = pOverride || renderParams();
   log(mode.toUpperCase(), { source: t.source.name, replaceLast: !!replaceLast, effect: p.effect, values: p.values });
   let res = null;
   try {
@@ -458,10 +492,57 @@ async function checkAutoUpdate() {
   if (last === undefined) { rendered.set(t.group.id, sig); return; }
   if (sig !== last) {
     log("AUTO", { reason: "source changed" });
+    // re-render with the settings stored in THIS group – the panel may show another layer's settings
     const saved = await readLayerParams(t.renderLayer.id);
-    if (saved && saved.effect !== state.effect) { state.effect = saved.effect; state.fx[saved.effect] = saved.values; buildControls(); buildLooks(); markActiveEffect(); syncUI(); }
-    await applyRender("auto");
+    if (!saved) return;
+    await applyRender("auto", { effect: saved.effect, values: saved.values, expandCanvas: !!state.expandCanvas });
   }
+}
+
+// ---------------------------------------------------------------- keep effect groups clean
+// Photoshop puts a new layer INSIDE the selected group. If that happens with an MS Render group (e.g. you
+// create a new text right after rendering), the layer is moved out, above the group, so it stays a normal
+// layer that can get its own effect – and the finished group keeps exactly its render + source.
+function renderGroupsIn(container, out) {
+  for (const l of container.layers || []) { if (isRenderGroup(l)) out.push(l); else if (isGroup(l)) renderGroupsIn(l, out); }
+  return out;
+}
+async function ejectForeignLayers() {
+  const doc = app.activeDocument;
+  if (!doc || busy) return false;
+  const jobs = [];
+  for (const g of renderGroupsIn(doc, [])) {
+    const parts = groupParts(g);
+    if (!parts.renderLayer) continue;
+    if (!groupSource.has(g.id)) {
+      const saved = await readLayerParams(parts.renderLayer.id);
+      if (saved && saved.sourceId) groupSource.set(g.id, saved.sourceId);
+    }
+    const { foreign } = groupParts(g);
+    if (foreign.length) jobs.push({ g, foreign });
+  }
+  if (!jobs.length) return false;
+  const selectedIds = doc.activeLayers.map((l) => l.id);
+  busy = true;
+  try {
+    await core.executeAsModal(async (ctx) => {
+      const hid = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: HIST + " keep layer outside the effect" });
+      try {
+        for (const { g, foreign } of jobs) for (const f of foreign) await f.move(g, constants.ElementPlacement.PLACEBEFORE);
+        const sel = jobs.flatMap((j) => j.foreign).find((f) => selectedIds.includes(f.id));
+        if (sel) await selectLayer(sel.id);
+      } finally { await ctx.hostControl.resumeHistory(hid); }
+    }, { commandName: HIST + " keep layer outside the effect" });
+    log("EJECT", jobs.map((j) => ({ group: j.g.name, layers: j.foreign.map((f) => f.name) })));
+    setStatus("New layer moved out of the MS Render group – it's a normal layer again.");
+  } catch (e) {
+    log("eject failed (will retry)", String(e && e.message || e)); // e.g. still typing in the new text
+    busy = false;
+    return false;
+  }
+  busy = false;
+  ignoreEventsUntil = Date.now() + 500;
+  return true;
 }
 
 // ---------------------------------------------------------------- UI
@@ -596,7 +677,7 @@ function buildUI() {
   $("bg").addEventListener("change", () => sendPreviewParams());
   $("render").addEventListener("click", () => applyRender("manual"));
   $("remove").addEventListener("click", removeRender);
-  $("live").addEventListener("change", (e) => { liveLast = null; if (e.target.checked) applyRender("live"); });
+  $("live").addEventListener("change", (e) => { liveLast = null; if (e.target.checked && liveTarget()) applyRender("live"); });
   $("autoUpdate").addEventListener("change", (e) => { try { localStorage.setItem("msrender.auto", e.target.checked ? "1" : "0"); } catch (err) { /* ignore */ } });
   $("resetAll").addEventListener("click", () => { delete state.fx[state.effect]; syncUI(); changed(); setStatus(`${fxDef().name} reset to defaults.`); });
   $("selfTest").addEventListener("click", runSelfTest);
@@ -613,7 +694,11 @@ function syncUI() {
 function changed() {
   saveState();
   sendPreviewParams();
-  if (!loadingFromLayer && $("live").checked) debouncedLive();
+  if (loadingFromLayer || !$("live").checked) return;
+  // Live only updates an existing MS Render group. A plain layer gets an effect only by an explicit
+  // click (effect tile, look or Apply) – so a new text never picks up an effect by accident.
+  if (liveTarget()) debouncedLive();
+  else if (hasTarget()) setStatus("Live updates MS Render groups – click an effect or Apply to add one to this layer.");
 }
 
 // ---------------------------------------------------------------- self-test
@@ -780,6 +865,63 @@ async function runSelfTest() {
       const renders = doc.layers.filter((l) => RENDER_NAMES.has(l.name)).length;
       return { ok: groups === 0 && !!src && src.visible && renders === 0, groups, renders, sourceVisible: src && src.visible };
     });
+    // ---- several texts in one document: a rendered group is final, new texts are independent
+    const makeText = (text, vPct) => batchPlay([{ _obj: "make", _target: [{ _ref: "textLayer" }], using: { _obj: "textLayer", textKey: text,
+      textClickPoint: { _obj: "paint", horizontal: { _unit: "percentUnit", _value: 30 }, vertical: { _unit: "percentUnit", _value: vPct } },
+      textStyleRange: [{ _obj: "textStyleRange", from: 0, to: text.length, textStyle: { _obj: "textStyle", size: { _unit: "pointsUnit", _value: 90 }, color: { _obj: "RGBColor", red: 40, grain: 120, blue: 230 } } }] } }], {});
+    let g1 = null, src1 = null, newText = null;
+    await check("New text created inside an effect group is moved out", async () => {
+      use("chromeExtrude", {});
+      await applyRender("manual");                       // RETRO → group 1 (selected afterwards)
+      const t = resolveTarget(doc); g1 = t.group; src1 = t.source.id;
+      // like the text tool right after rendering: Photoshop puts the new layer inside the selected group
+      await core.executeAsModal(async () => { await selectLayer(src1); await makeText("NEW", 85); }, { commandName: HIST + " test new text" });
+      const before = groupParts(g1).foreign.length;
+      const wrongTarget = resolveTarget(doc).group;      // must not treat the new text as the group's source
+      await ejectForeignLayers();
+      const kids = g1.layers.map((l) => l.id), sel = doc.activeLayers[0];
+      newText = sel;
+      const parts = groupParts(g1);
+      return { ok: before === 1 && !wrongTarget && kids.length === 2 && parts.source.id === src1 && !parts.source.visible && !isRenderGroup(sel.parent) && sel.name.startsWith("NEW"),
+        before, wrongTarget: !!wrongTarget, kids: kids.length, selected: sel.name, parent: sel.parent && sel.parent.name };
+    });
+    await check("Second text gets its own effect – first group untouched", async () => {
+      use("glow", { size: 30 });
+      await applyRender("manual");                       // NEW → group 2
+      const v = await verify(renderParams());
+      const p1 = await readLayerParams(groupParts(g1).renderLayer.id);
+      v.group1Effect = p1 && p1.effect; v.group1Kids = g1.layers.length; v.group1Source = groupParts(g1).source.id === src1;
+      v.ok = v.ok && v.group1Effect === "chromeExtrude" && v.group1Kids === 2 && v.group1Source && resolveTarget(doc).group.id !== g1.id;
+      return v;
+    });
+    await check("Auto-update renders a group with ITS settings, not the panel's", async () => {
+      // panel still shows Glow (group 2); now the text of group 1 changes
+      await core.executeAsModal(async () => {
+        await selectLayer(src1);
+        await batchPlay([{ _obj: "set", _target: [{ _ref: "textLayer", _id: src1 }], to: { _obj: "textLayer", textKey: "RETRO X" } }], {});
+      }, { commandName: HIST + " test text" });
+      const wasAuto = $("autoUpdate").checked;
+      $("autoUpdate").checked = true;
+      await checkAutoUpdate();
+      $("autoUpdate").checked = wasAuto;
+      const saved = await readLayerParams(groupParts(g1).renderLayer.id);
+      const v = await verify({ effect: "chromeExtrude", values: FX.values("chromeExtrude", {}) });
+      v.panelEffect = state.effect; v.savedEffect = saved && saved.effect;
+      v.ok = v.ok && v.savedEffect === "chromeExtrude" && groupParts(g1).renderLayer.name === "Chrome Extrude";
+      return v;
+    });
+    await check("Live never adds an effect to a plain layer", async () => {
+      await core.executeAsModal(async () => { await selectLayer(doc.backgroundLayer.id); await makeText("PLAIN", 15); }, { commandName: HIST + " test plain text" });
+      const plain = doc.activeLayers[0];
+      const groupsBefore = renderGroupsIn(doc, []).length;
+      $("live").checked = true;
+      setValues({ size: 12 }); changed();
+      await new Promise((r) => setTimeout(r, 900));
+      while (busy) await new Promise((r) => setTimeout(r, 100));
+      $("live").checked = false;
+      const groupsAfter = renderGroupsIn(doc, []).length;
+      return { ok: groupsAfter === groupsBefore && !isRenderGroup(plain.parent) && plain.visible, groupsBefore, groupsAfter, button: $("render").textContent };
+    });
   } catch (e) {
     results.push({ test: "Aborted", ok: false, details: String(e && e.stack || e) });
   }
@@ -800,6 +942,7 @@ let ignoreEventsUntil = 0;
 let selfTestRunning = false;
 const onPsEvent = debounce(async () => {
   if (busy || selfTestRunning || Date.now() < ignoreEventsUntil) return;
+  await ejectForeignLayers();
   await checkAutoUpdate();
   refreshPreviewSource();
 }, 400);
@@ -812,8 +955,21 @@ async function init() {
   try { action.addNotificationListener(["select", "make", "delete", "set", "open", "close", "move", "transform", "editTextLayer"], onPsEvent); }
   catch (e) { log("listener failed", String(e)); }
   // fallback: user text edits may not always notify – poll gently
-  setInterval(() => { if (!busy && !selfTestRunning && Date.now() > ignoreEventsUntil) checkAutoUpdate(); }, 1500);
+  setInterval(async () => {
+    if (busy || selfTestRunning || Date.now() < ignoreEventsUntil) return;
+    if (await ejectForeignLayers()) refreshPreviewSource();
+    checkAutoUpdate();
+  }, 1500);
   await refreshPreviewSource();
   if (!thumbSig) { thumbSig = "sample"; requestThumbs("all"); }
+  // developer hook: a file "run-selftest" in the plugin's data folder starts the self-test (then is deleted)
+  setInterval(async () => {
+    if (busy || selfTestRunning) return;
+    try {
+      const f = await (await lfs.getDataFolder()).getEntry("run-selftest");
+      await f.delete();
+      runSelfTest();
+    } catch (e) { /* no flag */ }
+  }, 3000);
 }
 init();
