@@ -47,7 +47,7 @@ Every effect has its own looks (presets). Sizes are in % of the text height, so 
 - **Export for print**: the selected group (or all visible layers) as a transparent PNG, trimmed to the design,
   at 300 dpi and a print width in cm. **Hard edges (DTF)** removes all semi-transparent pixels, which DTF printers
   would otherwise turn into halftone fringes. Works on a copy – the document stays untouched
-- **Live mode** (one history step), self-test (136 checks: every effect, look and combo, building stacks, gallery, drag, live, remove, several texts in one document)
+- **Live mode** (one history step), self-test (140 checks: every effect, look and combo, building stacks, gallery, drag, live, remove, several texts in one document)
 
 ## Install (macOS)
 ```bash

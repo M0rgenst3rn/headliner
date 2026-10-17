@@ -260,10 +260,13 @@ async function refreshPreviewSource() {
   setTargetUI(t);
   if (!t || !t.source) return clear((t && t.error) || "Select a text or shape layer…");
   if (t.group && !loadingFromLayer) {
+    // panel edits that are not applied yet stay untouched while the same group is selected
+    const unapplied = loadedGroupId === t.group.id && appliedKey !== null && stackKey(state.stack) !== appliedKey;
     const saved = await readGroupParams(t);
     if (saved && saved.sourceId) groupSource.set(t.group.id, saved.sourceId);
     appliedKey = saved ? stackKey(saved.stack) : null;
-    if (saved && stackKey(saved.stack) !== stackKey(state.stack)) {
+    loadedGroupId = t.group.id;
+    if (saved && !unapplied && stackKey(saved.stack) !== stackKey(state.stack)) {
       loadingFromLayer = true;
       setStack(saved.stack);
       addMode = false;
@@ -281,11 +284,14 @@ async function refreshPreviewSource() {
   const f = Math.min(1, 380 / bw, 200 / bh);
   try {
     let a = null;
-    await core.executeAsModal(async (ctx) => {
-      const hid = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: HIST + " preview" });
-      try { a = await readSource(doc, t.source, { width: Math.max(1, Math.round(bw * f)), height: Math.max(1, Math.round(bh * f)) }); }
-      finally { await ctx.hostControl.resumeHistory(hid, false); }
-    }, { commandName: HIST + " preview" });
+    busy = true;
+    try {
+      await core.executeAsModal(async (ctx) => {
+        const hid = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: HIST + " preview" });
+        try { a = await readSource(doc, t.source, { width: Math.max(1, Math.round(bw * f)), height: Math.max(1, Math.round(bh * f)) }); }
+        finally { await ctx.hostControl.resumeHistory(hid, false); }
+      }, { commandName: HIST + " preview" });
+    } finally { busy = false; }
     ignoreEventsUntil = Date.now() + 700;
     previewSrc = { sig };
     wvPost({ cmd: "source", w: a.w, h: a.h, alpha: b64(a.alpha), rgb: b64(a.rgb) });
@@ -306,7 +312,7 @@ function currentTarget() { const doc = app.activeDocument; return doc ? resolveT
 function liveTarget() { const t = currentTarget(); return !!(t && t.group); }
 function hasTarget() { const t = currentTarget(); return !!(t && t.source); }
 // What the selected group currently has rendered (to show "changes not applied")
-let appliedKey = null;
+let appliedKey = null, loadedGroupId = null;
 function updatePendingUI(t) {
   if (t === undefined) t = currentTarget();
   const btn = $("render"), info = $("stackInfo");
@@ -333,7 +339,7 @@ function setTargetUI(t) {
     name.title = "Plain layer – click an effect or Apply to add the stack";
     btn.textContent = "Apply";
   } else { name.textContent = "–"; name.title = ""; btn.textContent = "Apply"; }
-  if (!(t && t.group)) appliedKey = null;
+  if (!(t && t.group)) { appliedKey = null; loadedGroupId = null; }
   updatePendingUI(t);
 }
 
@@ -604,9 +610,14 @@ function historyStateId(doc) { try { return doc.activeHistoryState ? doc.activeH
 async function applyRender(mode, pOverride) {
   // mode: "manual" | "live" | "auto"; pOverride: render with these settings instead of the panel's
   const live = mode === "live";
-  if (busy) { if (live) livePending = true; return; }
+  if (busy) {
+    if (live) { livePending = true; return; }
+    if (mode !== "manual") return;
+    if (!(await idleWithin(6000))) return setStatus("Photoshop is still busy – try again in a moment.", true);
+  }
   const doc = app.activeDocument;
   if (!doc) return setStatus("Open a document first.", true);
+  if (needsRGB(doc)) return;
   const t = resolveTarget(doc);
   if (!t || !t.source) return setStatus((t && t.error) || "Select a text or shape layer.", true);
   if (live && !t.group) return;   // Live never adds an effect to a plain layer (selection may have changed)
@@ -641,7 +652,7 @@ async function applyRender(mode, pOverride) {
   if (err) setStatus("Error: " + err, true);
   else {
     const now = resolveTarget(doc);
-    if (now && now.group && res && res.group && now.group.id === res.group.id) appliedKey = stackKey(p.stack);
+    if (now && now.group && res && res.group && now.group.id === res.group.id) { appliedKey = stackKey(p.stack); loadedGroupId = res.group.id; }
     setTargetUI(now);
     setStatus(`${mode === "auto" ? "Updated" : stackLabel(p.stack)} – ${secs}s${res && res.cropped ? " – cropped at the canvas edge (enable “Expand canvas”)" : ""}.`);
   }
@@ -650,7 +661,7 @@ async function applyRender(mode, pOverride) {
 const debouncedLive = debounce(() => applyRender("live"), 300);
 
 async function removeRender() {
-  if (busy) return;
+  if (busy && !(await idleWithin(6000))) return setStatus("Photoshop is still busy – try again in a moment.", true);
   const doc = app.activeDocument;
   const t = doc && resolveTarget(doc);
   if (!t || !t.group) return setStatus("Select an MS Render group to remove.", true);
@@ -687,9 +698,10 @@ function exportName(doc, t) {
 function allLayers(container, out) { for (const l of container.layers || []) { out.push(l); if (l.layers) allLayers(l, out); } return out; }
 async function deleteLayerDeep(l) { if (l.layers) for (const k of Array.from(l.layers)) await deleteLayerDeep(k); await l.delete(); }
 async function exportPNG(opts) {
-  if (busy) return null;
+  if (busy && !(await idleWithin(6000))) { setStatus("Photoshop is still busy – try again in a moment.", true); return null; }
   const doc = app.activeDocument;
   if (!doc) { setStatus("Open a document first.", true); return null; }
+  if (needsRGB(doc)) return null;
   const t = resolveTarget(doc);
   const scope = opts.scope;
   const targetId = scope === "group" ? (t && t.group ? t.group.id : t && t.source ? t.source.id : null) : null;
@@ -1167,7 +1179,7 @@ async function runSelfTest() {
       const fire = state.stack.entries.find((e) => e.effect === "fire");
       fire.on = false; commit(false); await waitIdle();               // fire hidden → its layer stays, hidden
       const v1 = await verify(renderParams());
-      const fireLayer = Array.from(resolveTarget(doc).group.layers).find((l) => l.name === "Fire");
+      const fireLayer = Array.from(resolveTarget(doc).group.layers).find((l) => l.name === renderLayerName("fire"));
       const hiddenOk = v1.ok && !!fireLayer && !fireLayer.visible;
       fire.on = true; commit(false); await waitIdle();
       const v1b = await verify(renderParams());
@@ -1385,6 +1397,33 @@ async function runSelfTest() {
       $("live").checked = false;
       const groupsAfter = renderGroupsIn(doc, []).length;
       return { ok: groupsAfter === groupsBefore && !isRenderGroup(plain.parent) && plain.visible, groupsBefore, groupsAfter, button: $("render").textContent };
+    });
+    await check("A text named like an effect stays editable and survives Remove", async () => {
+      const groupsBefore = renderGroupsIn(doc, []).length;
+      await core.executeAsModal(async () => { await selectLayer(doc.backgroundLayer.id); await makeText("Glow", 55); }, { commandName: HIST + " test effect-named text" });
+      const id = doc.activeLayers[0].id;
+      use("shadow", {});
+      await applyRender("manual");
+      const t = resolveTarget(doc);
+      const grouped = !!(t && t.group) && t.source.id === id && t.source.name === "Glow";
+      const v = await verify(renderParams());
+      await removeRender();
+      const survivor = allLayers(doc, []).find((l) => l.id === id);
+      const groupsAfter = renderGroupsIn(doc, []).length;
+      return { ok: grouped && v.ok && !!survivor && survivor.visible && !isRenderGroup(survivor.parent) && groupsAfter === groupsBefore,
+        grouped, verify: v, survivor: !!survivor, visible: survivor && survivor.visible, groupsBefore, groupsAfter };
+    });
+    await check("Engine edge cases: sticker fill 0, halftone without fade, value sanitising, unique ids", async () => {
+      const w = 200, h = 80, a = new Uint8Array(w * h), rgb = new Uint8Array(w * h * 3).fill(200);
+      for (let y = 20; y < 60; y++) for (let x = 20; x < 180; x++) if ((x % 40) < 30) a[y * w + x] = 255;
+      const src = { alpha: a, rgb, w, h };
+      const count = (r) => { let n = 0; for (let i = 3; i < r.rgba.length; i += 4) if (r.rgba[i]) n++; return n; };
+      const st = FX.render(src, "sticker", { fill: 0 }), ht = FX.render(src, "halftone", { direction: "none", min: 0 });
+      const vals = FX.values("glow", { size: "abc", intensity: 9999, color: "#f0f" });
+      const ns = FX.normStack({ entries: [{ uid: "a", effect: "glow" }, { uid: "a", effect: "shadow" }] });
+      const ok = count(st) < st.w * st.h * 0.9 && count(ht) > 500 && typeof vals.size === "number" && vals.intensity <= 100 && vals.color === "#ff00ff" &&
+        new Set(ns.entries.map((e) => e.uid)).size === 2;
+      return { ok, sticker: count(st) + "/" + st.w * st.h, halftone: count(ht), vals };
     });
   } catch (e) {
     results.push({ test: "Aborted", ok: false, details: String(e && e.stack || e) });

@@ -335,7 +335,9 @@ function render() {
     const t0 = performance.now();
     // a single Chrome Extrude renders on the GPU in milliseconds; everything else on the CPU engine
     const on = stack.entries.filter((e) => e.on);
-    const gpuEntry = on.length === 1 && FX.BY_ID[on[0].effect].gpu && progObj ? on[0] : null;
+    // very wide outlines exceed the shader's sample radius → the CPU engine draws those exactly
+    const wideStroke = (v) => { const H = src.h, sw = Math.max(1.5, v.stroke / 100 * H), sw2 = v.stroke2 > 0 ? Math.max(1, v.stroke2 / 100 * H) : 0; return Math.max(sw, (v.stroke > 0 ? sw : 0) + sw2) + 2 > 24; };
+    const gpuEntry = on.length === 1 && FX.BY_ID[on[0].effect].gpu && progObj && !wideStroke(on[0].values) ? on[0] : null;
     try {
       if (gpuEntry) { renderGPU(gpuEntry.values); geo.uid = gpuEntry.uid; } else renderCPU();
     } catch (e) { send({ type: "error", error: String(e && e.stack || e) }); }

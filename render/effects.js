@@ -432,7 +432,7 @@ def({
     { key: "seed", label: "Seed", type: "slider", min: 0, max: 999, step: 1, unit: "" },
   ],
   presets: { "Plasma": {}, "Purple Storm": { color: "#c78bff", radius: 7 }, "Overload": { arcs: 100, glow: 90, radius: 10 } },
-  extent: (v, box) => { const m = Math.ceil((v.radius + 10) / 100 * box.h) + 6; return { l: m, t: m, r: m, b: m }; },
+  extent: (v, box) => { const m = Math.ceil((v.radius / 100 + 0.45) * box.h) + 6; return { l: m, t: m, r: m, b: m }; },
   render(ctx, v) {
     const { w, h } = ctx, N = w * h, H = ctx.box.h, sdf = ctx.F.sdfS, s = v.seed | 0;
     const r = v.radius / 100 * H, amp = H * 0.07, lw = Math.max(0.8, H * 0.006), col = hex(v.color);
@@ -589,7 +589,7 @@ def({
         default: t = (y - box.y0) / H;
       }
       const f = v.direction === "none" ? 1 : clamp01((t - s0) / (s1 - s0));
-      const size = 1 + (mn - 1) * f;                       // 1 = solid, mn = smallest at the faded end
+      const size = v.direction === "none" ? Math.max(mn, 0.6) : 1 + (mn - 1) * f;                       // 1 = solid, mn = smallest at the faded end
       const u = (x - box.x0) * ca + (y - box.y0) * sa, q = -(x - box.x0) * sa + (y - box.y0) * ca;
       const lx = (u / c - Math.floor(u / c) - 0.5) * c, ly = (q / c - Math.floor(q / c) - 0.5) * c;
       let cov;
@@ -620,14 +620,14 @@ def({
     { key: "shadowY", label: "Shadow offset", type: "slider", min: 0, max: 10, step: 0.25, unit: "%" },
   ],
   presets: { "White Sticker": {}, "Black Patch": { color: "#141414", edgeColor: "#ffffff", edge: 0.6 }, "Thick Bubble": { width: 18, fill: 25, edge: 1.5 }, "Yellow Tape": { color: "#ffd84a", width: 7, fill: 6, shadow: 30 } },
-  extent: (v, box) => { const m = (v.width + v.edge + v.shadowY) / 100 * box.h * 1.2 + box.h * 0.06 + 6; return { l: m, t: m, r: m, b: m }; },
+  extent: (v, box) => { const m = (v.width + v.fill + v.edge + v.shadowY) / 100 * box.h * 1.2 + box.h * 0.06 + 6; return { l: m, t: m, r: m, b: m }; },
   render(ctx, v) {
     const { w, h, box } = ctx, N = w * h, H = box.h, dOut = ctx.F.dOut;
     const W = v.width / 100 * H, C = v.fill / 100 * H, Ew = v.edge / 100 * H;
     // closing (dilate by W+C, erode by C) gives one smooth outline around the whole word
     const inside = E.edt(w, h, (i) => dOut[i] > W + C);
     const cov = new Float32Array(N);
-    for (let i = 0; i < N; i++) cov[i] = clamp01(inside[i] - C + 0.5);
+    for (let i = 0; i < N; i++) cov[i] = dOut[i] > W + C ? 0 : C < 1 ? clamp01(W + C - dOut[i] + 0.5) : clamp01(inside[i] - C + 0.5);
     const dFin = Ew > 0 ? E.edt(w, h, (i) => cov[i] >= 0.5) : null;
     const sh = v.shadow > 0 ? E.blur(cov, w, h, Math.max(1, H * 0.035)) : null;
     const dy = Math.round(v.shadowY / 100 * H), col = hex(v.color), ec = hex(v.edgeColor), out = new Uint8ClampedArray(N * 4), black = [0, 0, 0];
@@ -815,7 +815,7 @@ def({
     { key: "glow", label: "Glow size", type: "slider", min: 0, max: 30, step: 0.5, unit: "%" },
     { key: "intensity", label: "Glow strength", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
     { key: "bolts", label: "Bolts (text)", type: "slider", min: 1, max: 20, step: 1, unit: "" },
-    { key: "length", label: "Length (text)", type: "slider", min: 10, max: 200, step: 1, unit: "%" },
+    { key: "length", label: "Length (text)", type: "slider", min: 10, max: 150, step: 1, unit: "%" },
     { key: "ax", label: "Start X", type: "slider", min: -300, max: 400, step: 1, unit: "%" },
     { key: "ay", label: "Start Y", type: "slider", min: -400, max: 500, step: 1, unit: "%" },
     { key: "bx", label: "End X", type: "slider", min: -300, max: 400, step: 1, unit: "%" },
@@ -893,10 +893,10 @@ def({
     const r = mulberry((v.seed | 0) * 104729 + 5);
     // candidate positions
     const cand = [];
-    for (let y = 1; y < h - 1; y += 2) for (let x = 1; x < w - 1; x += 2) {
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
       const i = y * w + x;
       if (v.placement === "edges") {
-        if (alpha[i] < 128 || dIn[i] > 1.6) continue;
+        if (alpha[i] < 128 || dIn[i] > 2) continue;
         // prefer edges facing the light (top-left), like a highlight would
         const nx = sdf[i + 1] - sdf[i - 1], ny = sdf[i + w] - sdf[i - w];
         if (nx + ny > 0) continue;
@@ -941,14 +941,14 @@ def({
   controls: [
     { key: "color", label: "Colour", type: "color" },
     { key: "core", label: "Inner colour", type: "color" },
-    { key: "length", label: "Ray length", type: "slider", min: 5, max: 150, step: 1, unit: "%" },
+    { key: "length", label: "Ray length", type: "slider", min: 5, max: 100, step: 1, unit: "%" },
     { key: "rays", label: "Rays", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
     { key: "wisp", label: "Wispiness", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
     { key: "intensity", label: "Intensity", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
     { key: "seed", label: "Seed", type: "slider", min: 0, max: 999, step: 1, unit: "" },
   ],
-  presets: { "Solar Flare": {}, "Aurora": { color: "#2dffb0", core: "#d8fff2", wisp: 90, rays: 30, length: 70 }, "Halo": { rays: 0, wisp: 10, length: 25, color: "#9fd0ff", core: "#ffffff" }, "Supernova": { length: 110, rays: 85, intensity: 100 } },
-  extent: (v, box) => { const m = v.length / 100 * box.h * 2.6 + 6; return { l: m, t: m, r: m, b: m }; },
+  presets: { "Solar Flare": {}, "Aurora": { color: "#2dffb0", core: "#d8fff2", wisp: 90, rays: 30, length: 70 }, "Halo": { rays: 0, wisp: 10, length: 25, color: "#9fd0ff", core: "#ffffff" }, "Supernova": { length: 100, rays: 85, intensity: 100 } },
+  extent: (v, box) => { const m = v.length / 100 * box.h * 2.2 + 6; return { l: m, t: m, r: m, b: m }; },
   render(ctx, v) {
     const { w, h, box } = ctx, N = w * h, H = box.h, dOut = ctx.F.dOut, s = v.seed | 0;
     const L = Math.max(2, v.length / 100 * H), I = v.intensity / 100, R = 2 + v.rays / 100 * 14, wsp = v.wisp / 100;
@@ -976,7 +976,7 @@ def({
 
 // ---------------------------------------------------------------- Backlight – light behind the shape, rays through the gaps
 // A pixel at distance D from the light collects light from D·(1-span) onwards, so rays reach R / (1-span).
-function backlightReach(v, H) { const R = Math.max(2, v.size / 100 * H); return R / (1 - v.length / 100 * 0.75); }
+function backlightReach(v, H) { const R = Math.max(2, v.size / 100 * H); return Math.min(R / (1 - v.length / 100 * 0.75), R + 2.5 * H); }
 def({
   id: "backlight", name: "Backlight", mode: "behind", drag: "pt",
   defaults: { color: "#ffe6a8", lx: 50, ly: 45, size: 55, length: 90, intensity: 90, softness: 50 },
@@ -1217,7 +1217,26 @@ function layoutFor(alpha0, w0, h0, effectId, v) {
   };
 }
 
-function values(effectId, v) { return Object.assign({}, BY_ID[effectId].defaults, v || {}); }
+// Defaults + user values, sanitised against the controls: numbers clamped, colours validated, selects checked.
+function values(effectId, v) {
+  const fx = BY_ID[effectId], out = Object.assign({}, fx.defaults);
+  if (!v || typeof v !== "object") return out;
+  const byKey = {};
+  for (const c of fx.controls || []) byKey[c.key] = c;
+  for (const k of Object.keys(v)) {
+    if (v[k] === undefined || v[k] === null) continue;
+    const c = byKey[k], d = fx.defaults[k];
+    if (!c) { if (k in fx.defaults) out[k] = v[k]; continue; }
+    if (c.type === "slider") { const n = Number(v[k]); if (isFinite(n)) out[k] = Math.max(c.min, Math.min(c.max, n)); }
+    else if (c.type === "color") {
+      let t = String(v[k]).trim();
+      if (/^#[0-9a-f]{3}$/i.test(t)) t = "#" + t[1] + t[1] + t[2] + t[2] + t[3] + t[3];
+      if (/^#[0-9a-f]{6}$/i.test(t) || (t === "" && d === "")) out[k] = t.toLowerCase();
+    } else if (c.type === "select") { if (c.options.some((o) => String(o.id) === String(v[k]))) out[k] = typeof d === "number" ? Number(v[k]) : String(v[k]); }
+    else out[k] = v[k];
+  }
+  return out;
+}
 
 // src: { alpha, w, h, rgb? } -> { rgba, w, h, offsetX, offsetY, box }
 function render(src, effectId, v) {
@@ -1227,6 +1246,7 @@ function render(src, effectId, v) {
   const lay = layoutFor(src.alpha, src.w, src.h, effectId, v);
   if (!lay) return null;
   const n = lay.need;
+  if ((src.w + n.left + n.right) * (src.h + n.top + n.bottom) > 80e6) throw new Error(fx.name + ": result would be too large – lower size/length");
   const P = E.pad(src.alpha, src.w, src.h, n.left, n.top, n.right, n.bottom);
   let rgb = null;
   if (src.rgb) {
@@ -1252,11 +1272,15 @@ function entry(effect, v, on) { return { uid: newUid(), effect, values: values(e
 // Valid, complete stack: known effects only, full values, at most one base (the topmost wins).
 function normStack(st) {
   const list = (st && Array.isArray(st.entries) ? st.entries : []).filter((e) => e && BY_ID[e.effect]);
-  let base = false;
-  const entries = [];
+  const bases = list.filter((e) => zoneOf(e.effect) === "base");
+  const keep = bases.find((e) => e.on !== false) || bases[0];
+  const seen = new Set(), entries = [];
   for (const e of list) {
-    if (zoneOf(e.effect) === "base") { if (base) continue; base = true; }
-    entries.push({ uid: e.uid || newUid(), effect: e.effect, values: values(e.effect, e.values), on: e.on !== false });
+    if (zoneOf(e.effect) === "base" && e !== keep) continue;
+    let uid = e.uid;
+    if (!uid || seen.has(uid)) uid = newUid();
+    seen.add(uid);
+    entries.push({ uid, effect: e.effect, values: values(e.effect, e.values), on: e.on !== false });
   }
   return { entries: sortStack(entries) };
 }
