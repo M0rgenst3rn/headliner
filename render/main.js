@@ -1268,10 +1268,14 @@ async function runSelfTest() {
       useStack(FX.comboStack("Neon Sign"));
       await applyRender("manual");
       const want = stackKey(state.stack);
-      use("chromeExtrude", {});
+      use("chromeExtrude", {});                          // unapplied edit on the same group: must survive a refresh
       previewSrc = null;
       await refreshPreviewSource();
-      return { ok: stackKey(state.stack) === want, got: stackLabel(state.stack) };
+      const kept = stackLabel(state.stack) === "Chrome Extrude";
+      loadedGroupId = null;                              // as if another layer had been selected in between
+      previewSrc = null;
+      await refreshPreviewSource();
+      return { ok: kept && stackKey(state.stack) === want, kept, got: stackLabel(state.stack) };
     });
     await check("Canvas expands when the effects don't fit", async () => {
       const w0 = Number(doc.width);
