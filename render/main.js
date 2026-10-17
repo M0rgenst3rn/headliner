@@ -1217,7 +1217,7 @@ async function runSelfTest() {
       const v = await verify(renderParams());
       // the glow layer must reach further down than a glow around the flat text would
       const t = resolveTarget(doc);
-      const glowL = Array.from(t.group.layers).find((l) => l.name === "Glow"), srcB = boundsOf(t.source);
+      const glowL = Array.from(t.group.layers).find((l) => l.name === renderLayerName("glow")), srcB = boundsOf(t.source);
       v.glowBottom = boundsOf(glowL).bottom; v.textBottom = srcB.bottom;
       v.ok = v.ok && v.glowBottom > v.textBottom + (srcB.bottom - srcB.top) * 0.3;
       return v;
