@@ -24,8 +24,8 @@ const DEFAULTS = {
   horizon: 50,            // where sky meets ground in the chrome reflection, % (top → bottom)
   shine: 70,              // specular highlights, %
   sideMode: "material",   // material | solid – side walls in the material or a colour gradient
-  sideColor: "#ff3fa4", sideColor2: "#3b0a5c",
-  strokeColor: "#0c0a1e", stroke2: 0, stroke2Color: "#ff3fa4",   // outline + optional second outline
+  sideColor: "#2f74f0", sideColor2: "#0b1a4a",
+  strokeColor: "#0c0a1e", stroke2: 0, stroke2Color: "#2fa8ff",   // outline + optional second outline
   shadowColor: "#140628", shadowOpacity: 85,
   skyTop: "#0a1440", skyHorizon: "#dff2ff", groundHorizon: "#a86a34", groundBottom: "#4a2c16",   // material "custom"
   expandCanvas: true,
@@ -481,13 +481,13 @@ def({
 // 2) Inflate – glossy puffy / bubble letters
 def({
   id: "inflate", name: "Inflate", mode: "replace",
-  defaults: { color: "#ff3fa4", puff: 70, gloss: 75, stroke: 2, shadowX: 1.5, shadowY: 2.5 },
+  defaults: { color: "#2f74f0", puff: 70, gloss: 75, stroke: 2, shadowX: 1.5, shadowY: 2.5 },
   controls: [
     { key: "color", label: "Colour", type: "color" },
     { key: "puff", label: "Puffiness", type: "slider", min: 10, max: 100, step: 1, unit: "%" },
     { key: "gloss", label: "Gloss", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
   ].concat(OUTLINE_CONTROLS),
-  presets: { "Bubblegum": {}, "Toxic Green": { color: "#4dff5c" }, "Y2K Chrome Blue": { color: "#3d7bff", gloss: 100 }, "Matte Puff": { color: "#ffb02e", gloss: 15 } },
+  presets: { "Blue Puff": {}, "Toxic Green": { color: "#4dff5c" }, "Y2K Chrome Blue": { color: "#3d7bff", gloss: 100 }, "Matte Puff": { color: "#ffb02e", gloss: 15 } },
   extent: (v, box) => { const m = outlineExt(v, box.h); return { l: m, t: m, r: m, b: m }; },
   render(ctx, v) {
     const { w, h } = ctx, N = w * h, d = ctx.F.dIn;
@@ -1669,12 +1669,12 @@ const C = (effect, v) => ({ effect, values: v || {} });
 const COMBOS = {
   "Thunder Chrome": [C("lightning", { ay: -160, by: 10 }), C("chromeExtrude", {}), C("glow", { color: "#5aa8ff", size: 14, intensity: 70, core: 20 })],
   "Flame Biker": [C("chromeExtrude", { material: "gold", depth: 18 }), C("fire", { height: 90 })],
-  "Neon Sign": [C("star", { count: 4, size: 18 }), C("bevel", { color: "#ff3fa4", width: 5, profile: "round" }), C("glow", { color: "#ff2bd6", size: 22, core: 60 })],
+  "Neon Sign": [C("star", { count: 4, size: 18 }), C("bevel", { color: "#2f74f0", width: 5, profile: "round" }), C("glow", { color: "#2fa8ff", size: 22, core: 60 })],
   "Toxic Slime": [C("inflate", { color: "#4dff5c" }), C("sticker", { color: "#141414", width: 6, fill: 8, edge: 0.6, edgeColor: "#7dff2b" }), C("glow", { color: "#7dff2b", size: 18, intensity: 60 })],
   "Frozen": [C("snow", { thickness: 10, flakes: 25 }), C("glass", { tint: "#9fe2ff" }), C("glow", { color: "#bfefff", size: 12, intensity: 50, core: 10 })],
   "70s Groove": [C("inflate", { color: "#ffe6b0", puff: 45, gloss: 40, stroke: 0, shadowX: 0, shadowY: 0 }), C("retroStack", {})],
-  "Sticker Pop": [C("bevel", { color: "#ff3f8e", width: 5, profile: "round" }), C("sticker", {})],
-  "Comic Burst": [C("halftone", { color: "#ff2d55", direction: "none", min: 70, cell: 3 }), C("retroStack", { palette: "comic", copies: 2, outline: 5, distance: 9, gap: 1.2 })],
+  "Sticker Pop": [C("bevel", { color: "#2f74f0", width: 5, profile: "round" }), C("sticker", {})],
+  "Comic Burst": [C("halftone", { color: "#e63228", direction: "none", min: 70, cell: 3 }), C("retroStack", { palette: "comic", copies: 2, outline: 5, distance: 9, gap: 1.2 })],
   "Hot Rod": [C("inflate", { color: "#ff5a1f", puff: 60 }), C("fire", { height: 70 }), C("shadow", { style: "drop", distance: 6, blur: 5, opacity: 55, color: "#000000" })],
   "Gold Sparkle": [C("star", { color: "#fff3c4", count: 8, size: 24 }), C("chromeExtrude", { material: "gold", depth: 12 }), C("shadow", { style: "long", angle: 45, distance: 25, color: "#2a1700", opacity: 70 })],
   "Eclipse": [C("bevel", { color: "#141414", width: 6 }), C("backlight", { color: "#ffffff", size: 70, length: 100, softness: 25 })],

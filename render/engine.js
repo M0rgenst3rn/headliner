@@ -19,8 +19,8 @@ const DEFAULTS = {
   horizon: 50,            // where sky meets ground in the chrome reflection, % (top → bottom)
   shine: 70,              // specular highlights, %
   sideMode: "material",   // material | solid – side walls in the material or a colour gradient
-  sideColor: "#ff3fa4", sideColor2: "#3b0a5c",
-  strokeColor: "#0c0a1e", stroke2: 0, stroke2Color: "#ff3fa4",   // outline + optional second outline
+  sideColor: "#2f74f0", sideColor2: "#0b1a4a",
+  strokeColor: "#0c0a1e", stroke2: 0, stroke2Color: "#2fa8ff",   // outline + optional second outline
   shadowColor: "#140628", shadowOpacity: 85,
   skyTop: "#0a1440", skyHorizon: "#dff2ff", groundHorizon: "#a86a34", groundBottom: "#4a2c16",   // material "custom"
   expandCanvas: true,

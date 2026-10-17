@@ -108,7 +108,7 @@ Diese Stapel baust du mit **+ Add effect** selbst nach:
 
 | Idee | Look | Dahinter | Darüber | Tipp |
 |---|---|---|---|---|
-| Neon | Bevel, Farbe Pink, Profil rund | Glow pink | Electrify pink | Dunkles Shirt, Glow-Größe 20 % |
+| Cyber | Bevel, Farbe Cyan, Profil rund | Glow cyan | Electrify hellblau | Dunkles Shirt, Glow-Größe 20 % |
 | Winter | Glass, hellblau | Backlight | Snow | Backlight hinter den Text ziehen |
 | Gold | Chrome Extrude, Gold | Corona | Star | Wenige, große Sterne wirken edler |
 | Speed | Chrome Extrude, Black Chrome | Motion Trail + Shadow | – | Richtung in der Vorschau ziehen |

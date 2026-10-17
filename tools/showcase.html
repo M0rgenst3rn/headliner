@@ -23,7 +23,7 @@ function textSource(text, px, color) {
   x.font = FONT(px);
   const w = Math.ceil(x.measureText(text).width + px * 0.45), h = Math.ceil(px * 1.12);
   c.width = w; c.height = h;
-  x.font = FONT(px); x.fillStyle = color || "#ff3f8e"; x.textBaseline = "alphabetic";
+  x.font = FONT(px); x.fillStyle = color || "#2f74f0"; x.textBaseline = "alphabetic";
   x.fillText(text, px * 0.12, Math.round(px * 0.93));
   const d = x.getImageData(0, 0, w, h).data, a = new Uint8Array(w * h), rgb = new Uint8Array(w * h * 3);
   for (let i = 0; i < w * h; i++) { a[i] = d[i * 4 + 3]; rgb[i * 3] = d[i * 4]; rgb[i * 3 + 1] = d[i * 4 + 1]; rgb[i * 3 + 2] = d[i * 4 + 2]; }
@@ -149,7 +149,7 @@ async function run() {
   // 7) combination ideas (stacks you can build yourself)
   {
     const ideas = [
-      ["NEON", "Bevel pink + Glow + Electrify", [["electrify", { color: "#ff4fd8" }], ["bevel", { color: "#ff3fa4", width: 5, profile: "round" }], ["glow", { color: "#ff2bd6", size: 20, core: 50 }]]],
+      ["CYBER", "Bevel cyan + Glow + Electrify", [["electrify", { color: "#7fe9ff" }], ["bevel", { color: "#14b8d4", width: 5, profile: "round" }], ["glow", { color: "#18c8ff", size: 20, core: 50 }]]],
       ["WINTER", "Glass + Snow + Backlight", [["snow", { thickness: 10, flakes: 30 }], ["glass", { tint: "#9fe2ff" }], ["backlight", { color: "#cfeaff" }]]],
       ["GOLD", "Chrome Gold + Corona + Star", [["star", { count: 5, size: 34, glow: 80, color: "#fff1c9" }], ["chromeExtrude", { material: "gold" }], ["corona", {}]]],
       ["SPEED", "Chrome Black + Motion Trail + Shadow", [["chromeExtrude", { material: "blackchrome" }], ["motionTrail", {}], ["shadow", {}]]],
