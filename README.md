@@ -180,6 +180,18 @@ python3 tools/showcase-server.py    # dann die angezeigte Adresse öffnen: erzeu
 Im Panel prüft **Self-test** (unter *Tools*) 142 Fälle automatisch gegen das echte Photoshop-Ergebnis.
 Er legt dafür ein eigenes Testdokument an.
 
+## Fehler gefunden? Ideen?
+
+Melde dich gern! Am einfachsten über **[Issues](https://github.com/M0rgenst3rn/ms-render/issues)** hier auf GitHub:
+**New issue** klicken und kurz beschreiben, was passiert ist. Hilfreich sind Photoshop-Version, Betriebssystem
+und gern ein Screenshot. Dafür brauchst du nur ein kostenloses GitHub-Konto. Verbesserungsvorschläge und
+Wünsche für neue Funktionen sind genauso willkommen.
+
+## Lizenz
+
+[MIT](LICENSE): Du darfst den Code frei ansehen, verändern, weitergeben und auch kommerziell nutzen.
+Einzige Bedingung: Der Lizenzhinweis bleibt in Kopien enthalten.
+
 ---
 
 <p align="center"><sub>MS Render<br>
