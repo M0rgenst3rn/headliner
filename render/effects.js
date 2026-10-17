@@ -1351,30 +1351,31 @@ const COMBOS = {
   "Storm": [C("lightning", { style: "strike", bolts: 7, length: 80, color: "#c79bff" }), C("bevel", { material: "silver", width: 8 }), C("smoke", { color: "#3a3550", density: 70, height: 90 })],
 };
 function comboStack(name) { const c = COMBOS[name]; return c ? normStack({ entries: c.map((x) => entry(x.effect, x.values)) }) : null; }
-// A combo applied to an existing stack. "add": the combo's effects join the current stack, the current look
-// stays. "keep": the stack becomes the combo, but if the current look is the same effect as the combo's look
-// (e.g. your silver Chrome Extrude and Flame Biker's gold one) your look and its settings are kept.
-// "full": exactly the combo. Returns { stack, keptLook }.
+// The look (the base, e.g. your silver Chrome Extrude) always stays exactly as you set it. A combo or an
+// effect click changes everything around it; only picking another look replaces the look.
+const baseOf = (st) => normStack(st).entries.find((e) => zoneOf(e.effect) === "base") || null;
+const copyEntry = (e) => Object.assign({}, e, { values: Object.assign({}, e.values) });
+// combo: "add" = its effects join the current stack; otherwise the combo's effects replace the current
+// ones. Either way your look is kept; the combo's own look is used only when you have none yet.
 function applyCombo(cur, name, how) {
   const combo = comboStack(name);
   if (!combo) return null;
-  const st = normStack(cur), base = st.entries.find((e) => e.on && zoneOf(e.effect) === "base");
-  const comboBase = combo.entries.find((e) => zoneOf(e.effect) === "base");
-  const others = combo.entries.filter((e) => e !== comboBase);
-  if (how === "add") {
-    const entries = others.concat(st.entries);
-    if (comboBase && !base) entries.push(comboBase);
-    return { stack: normStack({ entries }), keptLook: !!base };
-  }
-  if (how !== "full" && base && comboBase && base.effect === comboBase.effect) {
-    const mine = Object.assign({}, base, { values: Object.assign({}, base.values) });
-    return { stack: normStack({ entries: others.concat([mine]) }), keptLook: true };
-  }
-  return { stack: combo, keptLook: false };
+  const st = normStack(cur), mine = baseOf(st);
+  const others = combo.entries.filter((e) => zoneOf(e.effect) !== "base");
+  if (!mine) return { stack: how === "add" ? normStack({ entries: combo.entries.concat(st.entries) }) : combo };
+  const rest = how === "add" ? st.entries.filter((e) => e !== mine) : [];
+  return { stack: normStack({ entries: others.concat(rest, [copyEntry(mine)]) }) };
+}
+// effect click (not "+ Add effect"): a look replaces the whole stack; any other effect replaces the
+// effects around your look, the look stays.
+function clickStack(cur, effect, v) {
+  const mine = zoneOf(effect) === "base" ? null : baseOf(cur);
+  const n = entry(effect, v);
+  return { stack: normStack({ entries: mine ? [n, copyEntry(mine)] : [n] }), uid: n.uid };
 }
 
 module.exports = {
   EFFECTS: EFFECTS.map((e) => ({ id: e.id, name: e.name, mode: e.mode, gpu: !!e.gpu, drag: e.drag || null, controls: e.controls, defaults: e.defaults, presets: e.presets })),
   BY_ID, values, layoutFor, render,
-  zoneOf, entry, normStack, sortStack, single, renderStack, stackBounds, COMBOS, comboStack, applyCombo,
+  zoneOf, entry, normStack, sortStack, single, renderStack, stackBounds, COMBOS, comboStack, applyCombo, clickStack,
 };

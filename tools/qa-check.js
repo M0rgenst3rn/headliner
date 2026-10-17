@@ -50,13 +50,19 @@ for (const [id, v] of [["backlight", { size: 200, length: 100 }], ["corona", { l
     if (pct >= 1) bad2++;
   }
 }
-// Combos keep a customised look of the same effect
+// Your look always stays
 {
-  const cur = { entries: [FX.entry("chromeExtrude", { material: "silver" })] };
-  const keep = FX.applyCombo(cur, "Flame Biker", "keep"), full = FX.applyCombo(cur, "Flame Biker", "full"), add = FX.applyCombo(cur, "Flame Biker", "add");
-  const mat = (r) => r.stack.entries.find((e) => e.effect === "chromeExtrude").values.material;
-  check("combo keeps your silver chrome", mat(keep) === "silver" && keep.stack.entries.some((e) => e.effect === "fire"));
-  check("⌥-combo uses its own gold look", mat(full) === "gold");
-  check("add-mode combo keeps the look", mat(add) === "silver" && add.stack.entries.length === 2);
+  const cur = { entries: [FX.entry("chromeExtrude", { material: "silver", depth: 31 })] };
+  const look = (st) => st.entries.find((e) => e.effect === "chromeExtrude");
+  const same = (st) => !!look(st) && look(st).values.material === "silver" && look(st).values.depth === 31;
+  const names = (st) => st.entries.map((e) => e.effect).sort().join();
+  for (const n of Object.keys(FX.COMBOS)) { const r = FX.applyCombo(cur, n, "replace").stack; check("combo keeps the look: " + n, same(r) && r.entries.filter((e) => FX.zoneOf(e.effect) === "base").length === 1, names(r)); }
+  const add = FX.applyCombo({ entries: cur.entries.concat([FX.entry("smoke", {})]) }, "Flame Biker", "add").stack;
+  check("add-mode combo keeps look and effects", same(add) && names(add) === "chromeExtrude,fire,smoke");
+  const click = FX.clickStack(FX.applyCombo(cur, "Thunder Chrome", "replace").stack, "glow", {}).stack;
+  check("effect click keeps the look", same(click) && names(click) === "chromeExtrude,glow");
+  const lookClick = FX.clickStack(cur, "bevel", {}).stack;
+  check("clicking another look replaces the look", names(lookClick) === "bevel");
+  check("no look yet: combo brings its own", look(FX.applyCombo({ entries: [] }, "Flame Biker", "replace").stack).values.material === "gold");
 }
 console.log(bad ? bad + " FAILED" : "all ok"); process.exit(bad ? 1 : 0);

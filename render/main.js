@@ -344,12 +344,20 @@ function setTargetUI(t) {
 }
 
 // ---------------------------------------------------------------- gallery: effects, looks, combos
+let lookKey = null;
+const currentLookKey = () => { const b = FX.normStack(state.stack).entries.find((e) => FX.zoneOf(e.effect) === "base"); return b ? JSON.stringify([b.effect, b.values]) : ""; };
+const debouncedComboThumbs = debounce(() => { if (thumbSig && currentLookKey() !== lookKey) requestThumbs("combos"); }, 700);
 function requestThumbs(which) {
   const items = [];
   if (which === "all") {
     for (const e of FX.EFFECTS) items.push({ key: "fx:" + e.id, effect: e.id, values: {} });
-    for (const n of Object.keys(FX.COMBOS)) items.push({ key: "combo:" + n, stack: FX.comboStack(n) });
   }
+  // combo tiles show what a click really gives: the combo's effects around your current look
+  if (which === "all" || which === "combos") {
+    lookKey = currentLookKey();
+    for (const n of Object.keys(FX.COMBOS)) items.push({ key: "combo:" + n, stack: FX.applyCombo(state.stack, n, "replace").stack });
+  }
+  if (which === "combos") return wvPost(Object.assign({ cmd: "thumbs", items }, THUMB));
   const fx = fxDef();
   if (fx) for (const n of Object.keys(fx.presets || {})) items.push({ key: "pr:" + fx.id + ":" + n, effect: fx.id, values: fx.presets[n] });
   wvPost(Object.assign({ cmd: "thumbs", items }, THUMB));
@@ -372,13 +380,13 @@ function buildGallery() {
   const grid = $("fxGrid");
   grid.innerHTML = "";
   for (const e of FX.EFFECTS) {
-    const t = tile("fx:" + e.id, e.name, `${e.name} – click to apply (replaces the stack) · ⌥-click: swap only the selected effect`, (ev) => effectClicked(e.id, !!(ev && ev.altKey)));
+    const t = tile("fx:" + e.id, e.name, `${e.name} – click to apply (replaces the effects, your look stays) · ⌥-click: swap only the selected effect`, (ev) => effectClicked(e.id, !!(ev && ev.altKey)));
     t.dataset.effect = e.id;
     grid.appendChild(t);
   }
   const cg = $("comboGrid");
   cg.innerHTML = "";
-  for (const n of Object.keys(FX.COMBOS)) cg.appendChild(tile("combo:" + n, n, `${n}: ${stackLabel(FX.comboStack(n))} – click to apply (keeps your look if it's the same effect) · ⌥-click: the combo's own look`, (ev) => comboClicked(n, !!(ev && ev.altKey))));
+  for (const n of Object.keys(FX.COMBOS)) cg.appendChild(tile("combo:" + n, n, `${n}: ${stackLabel(FX.comboStack(n))} – click to apply (your look stays)`, () => comboClicked(n)));
 }
 function buildLooks() {
   const grid = $("lookGrid"), fx = fxDef();
@@ -397,7 +405,7 @@ function markActive() {
   $("addFx").className = addMode ? "add-on" : "";
 }
 // the stack changed: rebuild everything that depends on it
-function rebuildForStack() { buildStackList(); buildControls(); buildLooks(); markActive(); syncUI(); saveState(); requestThumbs("presets"); sendPreviewParams(); updatePendingUI(); }
+function rebuildForStack() { buildStackList(); buildControls(); buildLooks(); markActive(); syncUI(); saveState(); requestThumbs("presets"); debouncedComboThumbs(); sendPreviewParams(); updatePendingUI(); }
 
 // After a click in the gallery etc.: a group updates right away; a plain layer gets the stack applied
 // (click = apply). Pure stack edits on a plain layer (remove, order, on/off) only change the draft.
@@ -408,14 +416,16 @@ function commit(applyToPlainLayer) {
   else if (t && t.source && applyToPlainLayer) applyRender("manual");
   else if (!t || !t.source) setStatus(`${stackLabel(state.stack)} – select a text or shape layer and press Apply.`);
 }
-// Click = "I want this effect": the stack becomes just this effect (also the way out of a combo).
+// Click = "I want this effect": it replaces the other effects (also the way out of a combo); your look stays.
+// Clicking a look replaces everything.
 // "+ Add effect" then click = add it to the stack. Option/Alt-click = swap only the selected effect.
 function effectClicked(id, swap) {
   const e = selEntry();
   const values = FX.values(id, state.fx[id]);
   const before = state.stack.entries.length;
   if (!addMode && !(swap && e)) {
-    setStack(FX.single(id, values));
+    const r = FX.clickStack(state.stack, id, values);   // your look stays; a look replaces everything
+    setStack(r.stack, r.uid);
   } else if (addMode || !e) {
     const n = FX.entry(id, values);
     let entries = state.stack.entries;
@@ -432,18 +442,16 @@ function effectClicked(id, swap) {
   addMode = false;
   commit(true);
   if (!hasTarget()) setStatus(`${FX.BY_ID[id].name} ${added ? "added" : "selected"} – select a text or shape layer and press Apply.`);
-  else if (!added && !swap && before > 1) setStatus(`Stack replaced by ${FX.BY_ID[id].name} – ⌘Z undoes it. Use “+ Add effect” to combine effects.`);
+  else if (!added && !swap && before > 1) setStatus(`${stackLabel(state.stack)} – the other effects were replaced (⌘Z undoes it). Use “+ Add effect” to combine.`);
 }
-// Combo click: your current look (e.g. a silver Chrome Extrude) is kept when the combo uses the same look –
-// only its other effects change. ⌥-click: exactly the combo, with its own look. "+ Add effect": add on top.
-function comboClicked(name, full) {
-  const how = addMode ? "add" : full ? "full" : "keep";
-  const r = FX.applyCombo(state.stack, name, how);
+// Combo click: its effects replace the ones around your look – the look itself always stays.
+// "+ Add effect" first: the combo's effects are added on top.
+function comboClicked(name) {
+  const r = FX.applyCombo(state.stack, name, addMode ? "add" : "replace");
   if (!r) return;
   addMode = false;
   setStack(r.stack, r.stack.entries[0].uid);
   commit(true);
-  if (r.keptLook) setStatus(`${name}: your look was kept – ⌥-click the combo to use its own look.`);
 }
 function applyPreset(n) {
   const fx = fxDef(), pr = fx && (fx.presets || {})[n];
@@ -1040,6 +1048,7 @@ function syncUI() {
 }
 function changed() {
   saveState();
+  debouncedComboThumbs();
   refreshControlVisibility();
   sendPreviewParams();
   updatePendingUI();
@@ -1196,14 +1205,15 @@ async function runSelfTest() {
       return { ok: hiddenOk && v1b.ok && v2.ok && order1 === "Inflate + Shadow + Fire" && order2 === "Inflate + Fire + Shadow" && stackLabel(state.stack) === "Inflate + Shadow",
         order1, order2, hiddenOk, v1b: v1b.ok, v2 };
     });
-    await check("Clicking one effect replaces a combo (the way out of a combo)", async () => {
+    await check("Clicking one effect replaces the combo's effects, the look stays", async () => {
       useStack(FX.comboStack("Thunder Chrome"));
       await applyRender("manual");
       const kids0 = resolveTarget(doc).group.layers.length;
       effectClicked("glow"); await waitIdle();
       const v = await verify(renderParams());
       v.kids0 = kids0; v.stack = stackLabel(state.stack);
-      v.ok = v.ok && kids0 === 4 && v.stack === "Glow" && v.children.length === 2;
+      v.effects = state.stack.entries.map((e) => e.effect).sort().join();
+      v.ok = v.ok && kids0 === 4 && v.effects === "chromeExtrude,glow" && v.children.length === 3;
       return v;
     });
     await check("Changed settings are marked until Update", async () => {
@@ -1341,12 +1351,12 @@ async function runSelfTest() {
         before, wrongTarget: !!wrongTarget, kids0, kids: g1.layers.length, selected: sel.name };
     });
     await check("Second text gets its own effect – first group untouched", async () => {
-      effectClicked("glow"); await waitIdle();           // plain layer: a click applies Glow on its own
+      effectClicked("glow"); await waitIdle();           // plain layer: a click applies Glow around the panel's look
       const v = await verify(renderParams());
       const p1 = await readGroupParams(groupParts(g1));
       v.group1Same = !!p1 && stackKey(p1.stack) === stackKey(g1Stack);
       v.group1Source = groupParts(g1).source.id === src1;
-      v.ok = v.ok && v.group1Same && v.group1Source && resolveTarget(doc).group.id !== g1.id && stackLabel(state.stack) === "Glow";
+      v.ok = v.ok && v.group1Same && v.group1Source && resolveTarget(doc).group.id !== g1.id && state.stack.entries.map((e) => e.effect).sort().join() === "chromeExtrude,glow";
       return v;
     });
     await check("Auto-update renders a group with ITS stack, not the panel's", async () => {
@@ -1437,19 +1447,20 @@ async function runSelfTest() {
         new Set(ns.entries.map((e) => e.uid)).size === 2;
       return { ok, sticker: count(st) + "/" + st.w * st.h, halftone: count(ht), vals };
     });
-    await check("A combo keeps your customised look (silver Chrome + Flame Biker stays silver), ⌥ uses its own", async () => {
+    await check("Your look always stays: silver Chrome + combos + effect clicks stay silver", async () => {
       await core.executeAsModal(async () => { await selectLayer(doc.backgroundLayer.id); await makeText("SILVER", 35); }, { commandName: HIST + " test combo look" });
-      use("chromeExtrude", { material: "silver" });
+      use("chromeExtrude", { material: "silver", depth: 31 });
       await applyRender("manual");
+      const look = async () => { const s = await readGroupParams(resolveTarget(doc)), e = s && s.stack.entries.find((x) => x.effect === "chromeExtrude"); return { e: s ? s.stack.entries.map((x) => x.effect).sort().join() : "", mat: e && e.values.material, depth: e && e.values.depth }; };
       comboClicked("Flame Biker"); await waitIdle();
-      const t = resolveTarget(doc), saved = await readGroupParams(t);
-      const mat = (st) => { const e = st && st.entries.find((x) => x.effect === "chromeExtrude"); return e && e.values.material; };
+      const a = await look();
+      comboClicked("Thunder Chrome"); await waitIdle();
+      const b = await look();
+      effectClicked("smoke"); await waitIdle();
+      const c = await look();
       const v = await verify(renderParams());
-      const keptOk = mat(saved && saved.stack) === "silver" && saved.stack.entries.some((e) => e.effect === "fire");
-      comboClicked("Flame Biker", true); await waitIdle();
-      const saved2 = await readGroupParams(resolveTarget(doc));
-      const fullOk = mat(saved2 && saved2.stack) === "gold";
-      return { ok: v.ok && keptOk && fullOk, keptOk, fullOk, verify: v, panel: stackLabel(state.stack) };
+      const same = (x) => x.mat === "silver" && x.depth === 31;
+      return { ok: v.ok && same(a) && a.e === "chromeExtrude,fire" && same(b) && b.e === "chromeExtrude,glow,lightning" && same(c) && c.e === "chromeExtrude,smoke", a, b, c, verify: v };
     });
     await check("An effect that draws nothing is named in the status", async () => {
       useStack({ entries: [FX.entry("chromeExtrude", {}), FX.entry("glow", { intensity: 0, core: 0 })] });

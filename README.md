@@ -31,8 +31,8 @@ Every effect has its own looks (presets). Sizes are in % of the text height, so 
   ✕ to remove. Each effect becomes its own layer in the group
 - **Combos**: ready-made stacks such as Thunder Chrome, Flame Biker, Neon Sign, Toxic Slime, Frozen, Hot Rod,
   Gold Sparkle, Eclipse, Solar Gold, Rust Belt, Marble Luxe, 70s Groove, Sticker Pop, Comic Burst and Storm.
-  A combo keeps your own look when it uses the same one (your silver Chrome stays silver with Flame Biker);
-  ⌥-click a combo for its own look, or “+ Add effect” first to add it on top of the stack
+  Your look always stays exactly as you set it: a combo (or an effect click) replaces only the effects around it;
+  the combo tiles preview it with your look. “+ Add effect” first adds a combo on top of the stack
 - **Effect gallery**: thumbnails of every effect rendered with *your* selected text – click one and it is
   applied to the canvas. Below it, thumbnails of the looks for the selected effect
 - **Live preview** in the panel: Chrome Extrude on the GPU (WebGL 2, 1–5 ms), the other effects on the CPU
