@@ -30,7 +30,9 @@ Every effect has its own looks (presets). Sizes are in % of the text height, so 
   extruded 3D letters, not just the flat text). **+ Add effect**, click to swap, ▲▼ to order, ● to hide,
   ✕ to remove. Each effect becomes its own layer in the group
 - **Combos**: ready-made stacks such as Thunder Chrome, Flame Biker, Neon Sign, Toxic Slime, Frozen, Hot Rod,
-  Gold Sparkle, Eclipse, Solar Gold, Rust Belt, Marble Luxe, 70s Groove, Sticker Pop, Comic Burst and Storm
+  Gold Sparkle, Eclipse, Solar Gold, Rust Belt, Marble Luxe, 70s Groove, Sticker Pop, Comic Burst and Storm.
+  A combo keeps your own look when it uses the same one (your silver Chrome stays silver with Flame Biker);
+  ⌥-click a combo for its own look, or “+ Add effect” first to add it on top of the stack
 - **Effect gallery**: thumbnails of every effect rendered with *your* selected text – click one and it is
   applied to the canvas. Below it, thumbnails of the looks for the selected effect
 - **Live preview** in the panel: Chrome Extrude on the GPU (WebGL 2, 1–5 ms), the other effects on the CPU
@@ -47,7 +49,7 @@ Every effect has its own looks (presets). Sizes are in % of the text height, so 
 - **Export for print**: the selected group (or all visible layers) as a transparent PNG, trimmed to the design,
   at 300 dpi and a print width in cm. **Hard edges (DTF)** removes all semi-transparent pixels, which DTF printers
   would otherwise turn into halftone fringes. Works on a copy – the document stays untouched
-- **Live mode** (one history step), self-test (140 checks: every effect, look and combo, building stacks, gallery, drag, live, remove, several texts in one document)
+- **Live mode** (one history step), self-test (142 checks: every effect, look and combo, building stacks, gallery, drag, live, remove, several texts in one document)
 
 ## Install (macOS)
 ```bash

@@ -378,7 +378,7 @@ function buildGallery() {
   }
   const cg = $("comboGrid");
   cg.innerHTML = "";
-  for (const n of Object.keys(FX.COMBOS)) cg.appendChild(tile("combo:" + n, n, `${n}: ${stackLabel(FX.comboStack(n))} – click to apply`, () => comboClicked(n)));
+  for (const n of Object.keys(FX.COMBOS)) cg.appendChild(tile("combo:" + n, n, `${n}: ${stackLabel(FX.comboStack(n))} – click to apply (keeps your look if it's the same effect) · ⌥-click: the combo's own look`, (ev) => comboClicked(n, !!(ev && ev.altKey))));
 }
 function buildLooks() {
   const grid = $("lookGrid"), fx = fxDef();
@@ -434,12 +434,16 @@ function effectClicked(id, swap) {
   if (!hasTarget()) setStatus(`${FX.BY_ID[id].name} ${added ? "added" : "selected"} – select a text or shape layer and press Apply.`);
   else if (!added && !swap && before > 1) setStatus(`Stack replaced by ${FX.BY_ID[id].name} – ⌘Z undoes it. Use “+ Add effect” to combine effects.`);
 }
-function comboClicked(name) {
-  const st = FX.comboStack(name);
-  if (!st) return;
+// Combo click: your current look (e.g. a silver Chrome Extrude) is kept when the combo uses the same look –
+// only its other effects change. ⌥-click: exactly the combo, with its own look. "+ Add effect": add on top.
+function comboClicked(name, full) {
+  const how = addMode ? "add" : full ? "full" : "keep";
+  const r = FX.applyCombo(state.stack, name, how);
+  if (!r) return;
   addMode = false;
-  setStack(st, st.entries[0].uid);
+  setStack(r.stack, r.stack.entries[0].uid);
   commit(true);
+  if (r.keptLook) setStatus(`${name}: your look was kept – ⌥-click the combo to use its own look.`);
 }
 function applyPreset(n) {
   const fx = fxDef(), pr = fx && (fx.presets || {})[n];
@@ -539,6 +543,9 @@ async function renderInto(ctx, doc, t, p) {
   if (!source) throw new Error("No source layer.");
   // 1) render at full resolution
   let { a, res } = await computeStack(doc, source, p.stack);
+  // enabled effects that draw nothing with these settings (told in the status line)
+  const blank = (l) => { for (let i = 3; i < l.rgba.length; i += 4) if (l.rgba[i]) return false; return true; };
+  const empty = FX.normStack(p.stack).entries.filter((e) => e.on && !res.layers.some((l) => l.uid === e.uid && !blank(l))).map((e) => FX.BY_ID[e.effect].name);
   // 2) make room on the canvas for everything the stack draws
   if (p.expandCanvas && res.layers.length) {
     const b = FX.stackBounds(res, a), dw = Math.round(Number(doc.width)), dh = Math.round(Number(doc.height));
@@ -600,7 +607,7 @@ async function renderInto(ctx, doc, t, p) {
   rendered.set(group.id, csig);
   const cropped = L.some((l) => l.cropped);
   log("  rendered", { stack: stackLabel(p.stack), group: group.name, layers: L.length, hidden: L.filter((l) => l.off).length, cropped });
-  return { group, cropped, layers: L.length };
+  return { group, cropped, layers: L.length, empty };
 }
 
 const rendered = new Map(); // groupId -> source signature at last render
@@ -654,7 +661,8 @@ async function applyRender(mode, pOverride) {
     const now = resolveTarget(doc);
     if (now && now.group && res && res.group && now.group.id === res.group.id) { appliedKey = stackKey(p.stack); loadedGroupId = res.group.id; }
     setTargetUI(now);
-    setStatus(`${mode === "auto" ? "Updated" : stackLabel(p.stack)} – ${secs}s${res && res.cropped ? " – cropped at the canvas edge (enable “Expand canvas”)" : ""}.`);
+    const emptyNote = res && res.empty && res.empty.length ? ` – ${res.empty.join(", ")} draws nothing with these settings` : "";
+    setStatus(`${mode === "auto" ? "Updated" : stackLabel(p.stack)} – ${secs}s${res && res.cropped ? " – cropped at the canvas edge (enable “Expand canvas”)" : ""}${emptyNote}.`, !!emptyNote);
   }
   if (livePending && $("live").checked) { livePending = false; applyRender("live"); }
 }
@@ -1428,6 +1436,26 @@ async function runSelfTest() {
       const ok = count(st) < st.w * st.h * 0.9 && count(ht) > 500 && typeof vals.size === "number" && vals.intensity <= 100 && vals.color === "#ff00ff" &&
         new Set(ns.entries.map((e) => e.uid)).size === 2;
       return { ok, sticker: count(st) + "/" + st.w * st.h, halftone: count(ht), vals };
+    });
+    await check("A combo keeps your customised look (silver Chrome + Flame Biker stays silver), ⌥ uses its own", async () => {
+      await core.executeAsModal(async () => { await selectLayer(doc.backgroundLayer.id); await makeText("SILVER", 35); }, { commandName: HIST + " test combo look" });
+      use("chromeExtrude", { material: "silver" });
+      await applyRender("manual");
+      comboClicked("Flame Biker"); await waitIdle();
+      const t = resolveTarget(doc), saved = await readGroupParams(t);
+      const mat = (st) => { const e = st && st.entries.find((x) => x.effect === "chromeExtrude"); return e && e.values.material; };
+      const v = await verify(renderParams());
+      const keptOk = mat(saved && saved.stack) === "silver" && saved.stack.entries.some((e) => e.effect === "fire");
+      comboClicked("Flame Biker", true); await waitIdle();
+      const saved2 = await readGroupParams(resolveTarget(doc));
+      const fullOk = mat(saved2 && saved2.stack) === "gold";
+      return { ok: v.ok && keptOk && fullOk, keptOk, fullOk, verify: v, panel: stackLabel(state.stack) };
+    });
+    await check("An effect that draws nothing is named in the status", async () => {
+      useStack({ entries: [FX.entry("chromeExtrude", {}), FX.entry("glow", { intensity: 0, core: 0 })] });
+      await applyRender("manual");
+      const st = $("status").textContent;
+      return { ok: st.indexOf("Glow draws nothing") >= 0, status: st };
     });
   } catch (e) {
     results.push({ test: "Aborted", ok: false, details: String(e && e.stack || e) });

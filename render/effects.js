@@ -363,7 +363,8 @@ def({
       const i = y * w + x;
       // march downward along a wavering path: the flame is "fed" by the shape below.
       // Continuous distance (no fixed steps) avoids banding; dOut lets us skip empty space.
-      const wob = fbm(x / sc, y / sc * 0.7 + s, 3, s) * tu * H * 0.35;
+      const bx = ctx.box.x0, by = ctx.box.y0;   // noise is anchored to the shape, not the canvas
+      const wob = fbm((x - bx) / sc, (y - by) / sc * 0.7 + s, 3, s) * tu * H * 0.35;
       let t = 0, hit = -1;
       while (t <= Fh) {
         const u = t / Fh, xi = Math.round(x + wob * u), yi = Math.round(y + t);
@@ -376,8 +377,8 @@ def({
       if (hit < 0) continue;
       const f = 1 - hit / Fh;
       // vertically stretched noise -> flame tongues that thin out with height
-      const tongue = fbm(x / (sc * 0.28), (y + s * 37) / (sc * 1.1), 4, s + 3);
-      const flick = 0.5 + 0.5 * fbm(x / (sc * 0.5), (y + s * 11) / (sc * 0.4), 3, s + 8);
+      const tongue = fbm((x - bx) / (sc * 0.28), (y - by + s * 37) / (sc * 1.1), 4, s + 3);
+      const flick = 0.5 + 0.5 * fbm((x - bx) / (sc * 0.5), (y - by + s * 11) / (sc * 0.4), 3, s + 8);
       const heat = clamp01((Math.pow(f, 1.3) * 1.35 + tongue * (0.6 + 0.6 * tu) - (1 - f) * 0.35) * flick * 1.4 * (v.intensity / 100));
       E.rampColor(FIRE, heat, col);
       out[i * 4] = col[0]; out[i * 4 + 1] = col[1]; out[i * 4 + 2] = col[2]; out[i * 4 + 3] = smooth(0.05, 0.35, heat) * 255;
@@ -405,7 +406,8 @@ def({
     const m = new Float32Array(N);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x;
-      const wob = fbm(x / sc, y / sc + s, 3, s) * H * 0.4;
+      const bx = ctx.box.x0, by = ctx.box.y0;
+      const wob = fbm((x - bx) / sc, (y - by) / sc + s, 3, s) * H * 0.4;
       let f = 0;
       for (let k = 0; k <= K; k++) {
         const t = k / K, px = Math.round(x + (wob - dr) * t), py = Math.round(y + t * Sh);
@@ -413,7 +415,7 @@ def({
         if (al[py * w + px] > 0) { f = 1 - t; break; }
       }
       if (f <= 0) continue;
-      const puff = 0.5 + 0.7 * fbm(x / (sc * 0.5), y / (sc * 0.5) + s, 5, s + 5);
+      const puff = 0.5 + 0.7 * fbm((x - bx) / (sc * 0.5), (y - by) / (sc * 0.5) + s, 5, s + 5);
       m[i] = clamp01(f * puff * (v.density / 100) * 1.1);
     }
     return solid(ctx, hex(v.color), E.blur(m, w, h, Math.max(1, H * 0.02)));
@@ -443,8 +445,8 @@ def({
       if (Math.abs(d) > amp * 3 + H * 0.12) continue;
       let line = 0;
       for (let k = 0; k < 3; k++) {
-        const n = fbm(x / (H * 0.09), y / (H * 0.09), 4, s + k * 31) * amp * (1 + k * 0.5);
-        const gate = smooth(-0.1, 0.25, perlin(x / (H * 0.6) + k * 7, y / (H * 0.6), s + 90 + k)) * (v.arcs / 100) + (v.arcs >= 100 ? 0.3 : 0);
+        const n = fbm((x - ctx.box.x0) / (H * 0.09), (y - ctx.box.y0) / (H * 0.09), 4, s + k * 31) * amp * (1 + k * 0.5);
+        const gate = smooth(-0.1, 0.25, perlin((x - ctx.box.x0) / (H * 0.6) + k * 7, (y - ctx.box.y0) / (H * 0.6), s + 90 + k)) * (v.arcs / 100) + (v.arcs >= 100 ? 0.3 : 0);
         line = Math.max(line, clamp01(1 - Math.abs(d - n) / lw) * clamp01(gate));
       }
       const glow = Math.exp(-Math.abs(d) / (H * 0.05)) * (v.glow / 100) * 0.45;
@@ -487,7 +489,7 @@ def({
       }
       if (best <= 0) continue;
       // streak texture across the direction
-      const across = -dy * x + dx * y;
+      const across = -dy * (x - ctx.box.x0) + dx * (y - ctx.box.y0);
       const streak = 1 - (v.streaks / 100) * (0.5 + 0.5 * perlin(across / (H * 0.05), 0.5, 3));
       const A = clamp01(best * streak * v.opacity / 100);
       const c = fixed || (ctx.rgb && bj >= 0 ? [ctx.rgb[bj * 3], ctx.rgb[bj * 3 + 1], ctx.rgb[bj * 3 + 2]] : [200, 200, 210]);
@@ -660,7 +662,7 @@ def({
     for (let x = 0; x < w; x++) {
       for (let y = 1; y < h; y++) {
         if (al[y * w + x] >= 128 && al[(y - 1) * w + x] < 128) {
-          const th = T * (1 - lu * 0.6 + lu * 1.1 * (0.5 + 0.5 * fbm(x / (H * 0.12), y / H, 3, s)));
+          const th = T * (1 - lu * 0.6 + lu * 1.1 * (0.5 + 0.5 * fbm((x - ctx.box.x0) / (H * 0.12), (y - ctx.box.y0) / H, 3, s)));
           const over = T * 0.25;                                        // snow overlaps the letter a bit
           for (let py = Math.max(0, Math.floor(y - th - 2)); py <= Math.min(h - 1, Math.ceil(y + over)); py++) {
             const top = y - th;
@@ -674,7 +676,7 @@ def({
     const sm = E.blur(m, w, h, Math.max(1, H * 0.008));
     const out = new Uint8ClampedArray(N * 4);
     for (let i = 0; i < N; i++) {
-      const x = i % w, y = (i / w) | 0;
+      const x = i % w - ctx.box.x0, y = ((i / w) | 0) - ctx.box.y0;   // flake grid anchored to the shape
       let a = clamp01((sm[i] - 0.5) * 3 + 0.5) * (m[i] > 0 || sm[i] > 0.5 ? 1 : 0), r = 255, g = 255, b = 255;
       if (a > 0) { const sd = shade[i]; r = 255 - 50 * sd; g = 255 - 30 * sd; b = 255 - 5 * sd; }
       if (v.flakes > 0) {
@@ -710,15 +712,15 @@ def({
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x;
       if (al[i] < 128) continue;
-      const cx = Math.floor(x / cell), cy = Math.floor(y / cell);
+      const X = x - ctx.box.x0, Y = y - ctx.box.y0, cx = Math.floor(X / cell), cy = Math.floor(Y / cell);
       let best = null;
       for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) {
         const gx = cx + k, gy = cy + j;
         if (rnd(gx, gy, s) > v.amount / 100) continue;
         const px = (gx + rnd(gx, gy, s + 1)) * cell, py = (gy + rnd(gy, gx, s + 2)) * cell;
         const r = R0 * (0.45 + 0.75 * rnd(gx, gy, s + 3));
-        const d = Math.hypot((x - px) / r, (y - py) / (r * 1.1));
-        if (d < 1 && (!best || d < best.d)) best = { d, dx: (x - px) / r, dy: (y - py) / r };
+        const d = Math.hypot((X - px) / r, (Y - py) / (r * 1.1));
+        if (d < 1 && (!best || d < best.d)) best = { d, dx: (X - px) / r, dy: (Y - py) / r };
       }
       if (!best) continue;
       // drop shading: dark rim at the bottom, bright crescent + specular at the top-left
@@ -1349,9 +1351,30 @@ const COMBOS = {
   "Storm": [C("lightning", { style: "strike", bolts: 7, length: 80, color: "#c79bff" }), C("bevel", { material: "silver", width: 8 }), C("smoke", { color: "#3a3550", density: 70, height: 90 })],
 };
 function comboStack(name) { const c = COMBOS[name]; return c ? normStack({ entries: c.map((x) => entry(x.effect, x.values)) }) : null; }
+// A combo applied to an existing stack. "add": the combo's effects join the current stack, the current look
+// stays. "keep": the stack becomes the combo, but if the current look is the same effect as the combo's look
+// (e.g. your silver Chrome Extrude and Flame Biker's gold one) your look and its settings are kept.
+// "full": exactly the combo. Returns { stack, keptLook }.
+function applyCombo(cur, name, how) {
+  const combo = comboStack(name);
+  if (!combo) return null;
+  const st = normStack(cur), base = st.entries.find((e) => e.on && zoneOf(e.effect) === "base");
+  const comboBase = combo.entries.find((e) => zoneOf(e.effect) === "base");
+  const others = combo.entries.filter((e) => e !== comboBase);
+  if (how === "add") {
+    const entries = others.concat(st.entries);
+    if (comboBase && !base) entries.push(comboBase);
+    return { stack: normStack({ entries }), keptLook: !!base };
+  }
+  if (how !== "full" && base && comboBase && base.effect === comboBase.effect) {
+    const mine = Object.assign({}, base, { values: Object.assign({}, base.values) });
+    return { stack: normStack({ entries: others.concat([mine]) }), keptLook: true };
+  }
+  return { stack: combo, keptLook: false };
+}
 
 module.exports = {
   EFFECTS: EFFECTS.map((e) => ({ id: e.id, name: e.name, mode: e.mode, gpu: !!e.gpu, drag: e.drag || null, controls: e.controls, defaults: e.defaults, presets: e.presets })),
   BY_ID, values, layoutFor, render,
-  zoneOf, entry, normStack, sortStack, single, renderStack, stackBounds, COMBOS, comboStack,
+  zoneOf, entry, normStack, sortStack, single, renderStack, stackBounds, COMBOS, comboStack, applyCombo,
 };
