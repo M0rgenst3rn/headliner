@@ -1230,9 +1230,91 @@ function render(src, effectId, v) {
   return { rgba: fx.render(ctx, v), w: P.w, h: P.h, offsetX: n.left, offsetY: n.top, box };
 }
 
+// ---------------------------------------------------------------- effect stacks
+// A stack is { entries: [{ uid, effect, values, on }] } – listed top to bottom like Photoshop's layers.
+// At most one entry "replaces the look" (the base, e.g. Chrome Extrude). It is rendered from the source;
+// every other effect is rendered from the base's result (its silhouette and colours), so a glow follows
+// the extruded 3D shape instead of the flat text. Without a base the effects use the source itself.
+// Final order (top → bottom): above-effects (list order), base, source (hidden when there is a base),
+// behind-effects (list order).
+let uidCounter = 0;
+const newUid = () => "e" + Date.now().toString(36) + (uidCounter++).toString(36);
+const zoneOf = (effect) => { const m = BY_ID[effect] ? BY_ID[effect].mode : "above"; return m === "replace" ? "base" : m; };
+function entry(effect, v, on) { return { uid: newUid(), effect, values: values(effect, v || {}), on: on !== false }; }
+// Valid, complete stack: known effects only, full values, at most one base (the topmost wins).
+function normStack(st) {
+  const list = (st && Array.isArray(st.entries) ? st.entries : []).filter((e) => e && BY_ID[e.effect]);
+  let base = false;
+  const entries = [];
+  for (const e of list) {
+    if (zoneOf(e.effect) === "base") { if (base) continue; base = true; }
+    entries.push({ uid: e.uid || newUid(), effect: e.effect, values: values(e.effect, e.values), on: e.on !== false });
+  }
+  return { entries: sortStack(entries) };
+}
+// keeps the list order inside each zone, zones in the order above → base → behind
+function sortStack(entries) {
+  const rank = { above: 0, base: 1, behind: 2 };
+  return entries.map((e, i) => [e, i]).sort((a, b) => rank[zoneOf(a[0].effect)] - rank[zoneOf(b[0].effect)] || a[1] - b[1]).map((x) => x[0]);
+}
+const single = (effect, v) => ({ entries: [entry(effect, v)] });
+const alphaRgbOf = (rgba, n) => {
+  const alpha = new Uint8Array(n), rgb = new Uint8Array(n * 3);
+  for (let i = 0; i < n; i++) { alpha[i] = rgba[i * 4 + 3]; rgb[i * 3] = rgba[i * 4]; rgb[i * 3 + 1] = rgba[i * 4 + 1]; rgb[i * 3 + 2] = rgba[i * 4 + 2]; }
+  return { alpha, rgb };
+};
+// src: { alpha, rgb, w, h } -> { layers: [{ uid, effect, zone, rgba, w, h, x, y, box }], sourceVisible }
+// x/y = position of the layer's top-left relative to the source's top-left; box = the shape box the effect
+// used (same coordinates) – for guides and dragging. layers are ordered top → bottom.
+function renderStack(src, stack) {
+  const st = normStack(stack), on = st.entries.filter((e) => e.on);
+  const base = on.find((e) => zoneOf(e.effect) === "base");
+  const out = {};
+  let sil = { alpha: src.alpha, rgb: src.rgb, w: src.w, h: src.h, x: 0, y: 0 };
+  const place = (e, r, ox, oy) => {
+    const x = ox - r.offsetX, y = oy - r.offsetY;
+    out[e.uid] = { uid: e.uid, effect: e.effect, zone: zoneOf(e.effect), rgba: r.rgba, w: r.w, h: r.h, x, y,
+      box: { x0: r.box.x0 + x, y0: r.box.y0 + y, w: r.box.w, h: r.box.h } };
+  };
+  if (base) {
+    const r = render(src, base.effect, base.values);
+    if (r) {
+      place(base, r, 0, 0);
+      const ar = alphaRgbOf(r.rgba, r.w * r.h);
+      sil = { alpha: ar.alpha, rgb: ar.rgb, w: r.w, h: r.h, x: -r.offsetX, y: -r.offsetY };
+    }
+  }
+  for (const e of on) {
+    if (e === base) continue;
+    const r = render(sil, e.effect, e.values);
+    if (r) place(e, r, sil.x, sil.y);
+  }
+  return { layers: st.entries.filter((e) => out[e.uid]).map((e) => out[e.uid]), sourceVisible: !base };
+}
+// Union of all layers + the source, relative to the source's top-left
+function stackBounds(res, src) {
+  let x0 = 0, y0 = 0, x1 = src.w, y1 = src.h;
+  for (const l of res.layers) { x0 = Math.min(x0, l.x); y0 = Math.min(y0, l.y); x1 = Math.max(x1, l.x + l.w); y1 = Math.max(y1, l.y + l.h); }
+  return { x0, y0, x1, y1 };
+}
+// ---------------------------------------------------------------- combo looks (stacks)
+const C = (effect, v) => ({ effect, values: v || {} });
+const COMBOS = {
+  "Thunder Chrome": [C("lightning", { ay: -160, by: 10 }), C("chromeExtrude", {}), C("glow", { color: "#5aa8ff", size: 14, intensity: 70, core: 20 })],
+  "Flame Biker": [C("chromeExtrude", { material: "gold", depth: 18 }), C("fire", { height: 90 })],
+  "Neon Sign": [C("star", { count: 4, size: 18 }), C("bevel", { color: "#ff3fa4", width: 5, profile: "round" }), C("glow", { color: "#ff2bd6", size: 22, core: 60 })],
+  "Toxic Slime": [C("drip", { color: "#5dff3a", length: 70, width: 7 }), C("inflate", { color: "#4dff5c" }), C("glow", { color: "#7dff2b", size: 18, intensity: 60 })],
+  "Frozen": [C("snow", { thickness: 10, flakes: 25 }), C("icicles", { length: 45 }), C("glass", { tint: "#9fe2ff" }), C("glow", { color: "#bfefff", size: 12, intensity: 50, core: 10 })],
+  "Hot Rod": [C("inflate", { color: "#ff5a1f", puff: 60 }), C("fire", { height: 70 }), C("shadow", { style: "drop", distance: 6, blur: 5, opacity: 55, color: "#000000" })],
+  "Gold Sparkle": [C("star", { color: "#fff3c4", count: 8, size: 24 }), C("chromeExtrude", { material: "gold", depth: 12 }), C("shadow", { style: "long", angle: 45, distance: 25, color: "#2a1700", opacity: 70 })],
+  "Storm": [C("lightning", { style: "strike", bolts: 7, length: 80, color: "#c79bff" }), C("bevel", { material: "silver", width: 8 }), C("smoke", { color: "#3a3550", density: 70, height: 90 })],
+};
+function comboStack(name) { const c = COMBOS[name]; return c ? normStack({ entries: c.map((x) => entry(x.effect, x.values)) }) : null; }
+
 module.exports = {
   EFFECTS: EFFECTS.map((e) => ({ id: e.id, name: e.name, mode: e.mode, gpu: !!e.gpu, drag: e.drag || null, controls: e.controls, defaults: e.defaults, presets: e.presets })),
   BY_ID, values, layoutFor, render,
+  zoneOf, entry, normStack, sortStack, single, renderStack, stackBounds, COMBOS, comboStack,
 };
 
 return module.exports; })();

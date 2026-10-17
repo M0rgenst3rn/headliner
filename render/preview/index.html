@@ -159,7 +159,8 @@ function upload(name, data, w, h, isFloat) {
 
 // ---------------------------------------------------------------- state
 let src = null;            // { alpha, rgb, w, h } preview-size source (unpadded)
-let state = null;          // { effect, values }
+let stack = null;          // { entries: [{ uid, effect, values, on }] } – top → bottom
+let state = null;          // the selected entry (its values are edited by dragging)
 let bg = 0;
 let geo = null;            // what is on screen: { w, h, box, vp?, fx }
 let gpuPad = null;         // padding currently uploaded for the GPU path
@@ -210,8 +211,7 @@ function paintBg(x, w, h, kind) {
 function sizeCanvases(w, h) {
   for (const cv of [canvas, c2, ov]) if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
 }
-function renderGPU() {
-  const v = state.values;
+function renderGPU(v) {
   const lay = E.layout(src.alpha, src.w, src.h, v);
   if (!lay) return;
   const extra = Math.ceil(lay.box.h * 0.35), n = lay.need;
@@ -270,36 +270,42 @@ function renderGPU() {
   gl.uniform1i(uni(progComp, "bg"), bg);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   const px = new Uint8Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); // wait for GPU
-  geo = { w: W, h: H, box, vp: { x: vp[0], y: vp[1] }, fx: FX.BY_ID.chromeExtrude };
+  geo = { w: W, h: H, box, vp: { x: vp[0], y: vp[1] }, fx: FX.BY_ID.chromeExtrude, uid: null };
 }
-// CPU path: render the effect, then composite source + effect over the background
-function composite(x, s, r, mode, ox, oy) {
-  const fxC = rgbaCanvas(r.rgba, r.w, r.h), srcC = toCanvas(s);
-  if (mode === "behind") { x.drawImage(fxC, ox - r.offsetX, oy - r.offsetY); x.drawImage(srcC, ox, oy); }
-  else if (mode === "above") { x.drawImage(srcC, ox, oy); x.drawImage(fxC, ox - r.offsetX, oy - r.offsetY); }
-  else x.drawImage(fxC, ox - r.offsetX, oy - r.offsetY);
+// CPU path: render the whole stack, then composite bottom-up over the background:
+// behind-effects, source (if visible), base, above-effects (layers come top → bottom)
+function drawStack(x, s, res, ox, oy) {
+  const L = res.layers, draw = (l) => x.drawImage(rgbaCanvas(l.rgba, l.w, l.h), ox + l.x, oy + l.y);
+  for (const l of L.filter((l) => l.zone === "behind").reverse()) draw(l);
+  if (res.sourceVisible) x.drawImage(toCanvas(s), ox, oy);
+  for (const l of L.filter((l) => l.zone === "base")) draw(l);
+  for (const l of L.filter((l) => l.zone === "above").reverse()) draw(l);
 }
 function renderCPU() {
-  const fx = FX.BY_ID[state.effect];
-  const r = FX.render(src, state.effect, state.values);
-  if (!r) return;
+  const res = FX.renderStack(src, stack);
+  const b = FX.stackBounds(res, src);
   // While dragging the frame stays fixed (otherwise the canvas grows with the effect and the point
-  // under the mouse runs away); afterwards it is fitted to the effect again.
+  // under the mouse runs away); afterwards it is fitted to the stack again.
   let W, H, sx, sy;
   const f = cpuFrame;
-  if (dragging && f && f.effect === state.effect && f.src === src) ({ W, H, sx, sy } = f);
+  if (dragging && f && f.src === src) ({ W, H, sx, sy } = f);
   else {
-    const extra = Math.ceil(r.box.h * 0.35);
-    W = r.w + 2 * extra; H = r.h + 2 * extra; sx = extra + r.offsetX; sy = extra + r.offsetY;
-    cpuFrame = { W, H, sx, sy, effect: state.effect, src };
+    const extra = Math.ceil(src.h * 0.25 + 6);
+    W = b.x1 - b.x0 + 2 * extra; H = b.y1 - b.y0 + 2 * extra; sx = extra - b.x0; sy = extra - b.y0;
+    cpuFrame = { W, H, sx, sy, src };
   }
   sizeCanvases(W, H);
   const x = c2.getContext("2d");
   x.clearRect(0, 0, W, H);
   paintBg(x, W, H, bg);
-  composite(x, src, r, fx.mode, sx, sy);
-  const box = { x0: r.box.x0 - r.offsetX + sx, y0: r.box.y0 - r.offsetY + sy, w: r.box.w, h: r.box.h };
-  geo = { w: W, h: H, box, fx };
+  drawStack(x, src, res, sx, sy);
+  // guides follow the selected effect
+  const lay = state && res.layers.find((l) => l.uid === state.uid);
+  if (!lay) { geo = { w: W, h: H, box: null, fx: null }; return; }
+  const box = { x0: lay.box.x0 + sx, y0: lay.box.y0 + sy, w: lay.box.w, h: lay.box.h };
+  const fx = FX.BY_ID[lay.effect];
+  geo = { w: W, h: H, box, fx, uid: lay.uid };
+  if (fx.drag === "vp") geo.vp = { x: box.x0 + state.values.vpX / 100 * box.w, y: box.y0 + state.values.vpY / 100 * box.h };
 }
 let pending = false;
 function render() {
@@ -307,20 +313,20 @@ function render() {
   pending = true;
   requestAnimationFrame(() => {
     pending = false;
-    if (!src || !state) return;
+    if (!src || !stack) return;
     const t0 = performance.now();
-    const fx = FX.BY_ID[state.effect];
-    if (!fx) return;
-    const useGPU = fx.gpu && progObj;
+    // a single Chrome Extrude renders on the GPU in milliseconds; everything else on the CPU engine
+    const on = stack.entries.filter((e) => e.on);
+    const gpuEntry = on.length === 1 && FX.BY_ID[on[0].effect].gpu && progObj ? on[0] : null;
     try {
-      if (useGPU) renderGPU(); else renderCPU();
+      if (gpuEntry) { renderGPU(gpuEntry.values); geo.uid = gpuEntry.uid; } else renderCPU();
     } catch (e) { send({ type: "error", error: String(e && e.stack || e) }); }
-    canvas.style.visibility = useGPU ? "visible" : "hidden";
-    c2.style.visibility = useGPU ? "hidden" : "visible";
+    canvas.style.visibility = gpuEntry ? "visible" : "hidden";
+    c2.style.visibility = gpuEntry ? "hidden" : "visible";
     ov.style.visibility = "visible";
     drawGuides();
     msg.textContent = "";
-    send({ type: "rendered", ms: +(performance.now() - t0).toFixed(1), effect: state.effect, gpu: !!useGPU });
+    send({ type: "rendered", ms: +(performance.now() - t0).toFixed(1), layers: on.length, gpu: !!gpuEntry });
   });
 }
 
@@ -328,7 +334,7 @@ function render() {
 function drawGuides() {
   const x = ov.getContext("2d");
   x.clearRect(0, 0, ov.width, ov.height);
-  if (!geo) return;
+  if (!geo || !geo.fx || !geo.box || !state || geo.uid !== state.uid) { hint.textContent = ""; ov.className = ""; return; }
   const fx = geo.fx, v = state.values, b = geo.box, kind = dragKind();
   hint.textContent = { vp: "drag: vanishing point", dir: "drag: direction", ab: "drag: bolt start / end" }[kind] || "";
   ov.className = kind ? "drag" : "";
@@ -363,7 +369,7 @@ function drawGuides() {
 }
 // lightning "point to point" has draggable A/B handles; its "out of the text" mode has none
 function dragKind() {
-  if (!geo) return null;
+  if (!geo || !geo.fx || !geo.box || !state || geo.uid !== state.uid) return null;
   const fx = geo.fx;
   if (fx.drag === "ab" && state.values.style !== "points") return null;
   return fx.drag || null;
@@ -384,7 +390,7 @@ function toCanvasXY(e) {
   return { x: (e.clientX - r.left - ox) / k, y: (e.clientY - r.top - oy) / k };
 }
 function dragTo(e) {
-  if (!geo || !state || geo.fx.id !== state.effect) return; // screen still shows the previous effect
+  if (!dragKind()) return; // nothing draggable / screen still shows another effect
   const fx = geo.fx, b = geo.box, p = toCanvasXY(e);
   let upd = null;
   if (fx.drag === "vp") upd = { vpX: Math.round((p.x - b.x0) / b.w * 100 / 5) * 5, vpY: Math.round((p.y - b.y0) / b.h * 100 / 5) * 5 };
@@ -397,7 +403,7 @@ function dragTo(e) {
   if (!upd) return;
   Object.assign(state.values, upd);
   render();
-  send({ type: "drag", effect: state.effect, values: upd, final: e.type === "pointerup" });
+  send({ type: "drag", uid: state.uid, effect: state.effect, values: upd, final: e.type === "pointerup" });
 }
 ov.addEventListener("pointerdown", (e) => { if (!dragKind()) return; dragging = true; try { ov.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } dragTo(e); });
 ov.addEventListener("pointermove", (e) => { if (dragging) dragTo(e); });
@@ -406,12 +412,11 @@ ov.addEventListener("pointerup", (e) => { if (!dragging) return; dragTo(e); drag
 // ---------------------------------------------------------------- gallery thumbnails
 // Renders each item {key, effect, values} on the current source (or a sample) into a tile and
 // returns a PNG data URL to the panel. Done one tile per tick so the preview stays responsive.
-let thumbJob = 0;
-function scaledSource(s, tw, th, effect) {
+function scaledSource(s, tw, th, effect, zoom) {
   // fit the text box into the tile, leaving room for the effect
   const lay = FX.layoutFor(s.alpha, s.w, s.h, "glow", FX.values("glow", { size: 0.1 }));
   const b = lay ? lay.box : { x0: 0, y0: 0, w: s.w, h: s.h };
-  const k = Math.min(tw * 0.74 / Math.max(1, b.w), th * 0.42 / Math.max(1, b.h));
+  const k = Math.min(tw * 0.74 / Math.max(1, b.w), th * 0.42 / Math.max(1, b.h)) * (zoom || 1);
   const cv = document.createElement("canvas"); cv.width = tw; cv.height = th;
   const x = cv.getContext("2d");
   const up = effect === "lightning" ? 0.1 : effect === "fire" || effect === "smoke" ? 0.17 : effect === "drip" || effect === "icicles" ? -0.1 : 0;
@@ -420,26 +425,40 @@ function scaledSource(s, tw, th, effect) {
   x.drawImage(toCanvas(s), cx, cy, s.w * k, s.h * k);
   return fromImageData(x.getImageData(0, 0, tw, th));
 }
+// Thumbnail requests are queued (a new request replaces queued items with the same key but never
+// cancels the rest) – so the gallery always fills up, even while the stack is being edited.
+const thumbQueue = [];
+let thumbBusy = false, thumbSize = { tw: 200, th: 124 };
 function makeThumbs(m) {
-  const job = ++thumbJob;
+  thumbSize = { tw: m.tw, th: m.th };
+  const keys = new Set(m.items.map((it) => it.key));
+  for (let i = thumbQueue.length - 1; i >= 0; i--) if (keys.has(thumbQueue[i].key)) thumbQueue.splice(i, 1);
+  thumbQueue.push(...m.items);
+  if (!thumbBusy) { thumbBusy = true; setTimeout(thumbStep, 0); }
+}
+function thumbStep() {
+  const m = thumbSize;
   const base = src || sampleSource("Ab");
-  const items = m.items.slice();
-  const step = () => {
-    if (job !== thumbJob || !items.length) return;
-    const it = items.shift();
-    try {
-      const s = scaledSource(base, m.tw, m.th, it.effect);
-      const fx = FX.BY_ID[it.effect];
-      const r = FX.render(s, it.effect, FX.values(it.effect, Object.assign({}, fx.thumb || {}, it.values)));
-      const cv = document.createElement("canvas"); cv.width = m.tw; cv.height = m.th;
-      const x = cv.getContext("2d");
-      paintBg(x, m.tw, m.th, 9);
-      if (r) composite(x, s, r, fx.mode, 0, 0);   // s is already tile-sized, so it sits at 0,0
-      send({ type: "thumb", key: it.key, url: cv.toDataURL("image/png") });
-    } catch (e) { send({ type: "error", error: "thumb " + it.key + ": " + String(e && e.message || e) }); }
-    setTimeout(step, 0);
-  };
-  step();
+  const items = thumbQueue;
+  if (!items.length) { thumbBusy = false; return; }
+  const it = items.shift();
+  try {
+    // an item is a single effect ({ effect, values }) or a combo ({ stack })
+    let st = it.stack;
+    if (!st) { const fx = FX.BY_ID[it.effect]; st = FX.single(it.effect, Object.assign({}, fx.thumb || {}, it.values)); }
+    st = FX.normStack(st);
+    const ids = st.entries.map((e) => e.effect);
+    const look = ids.includes("lightning") ? "lightning" : ids.includes("fire") || ids.includes("smoke") ? "fire" : ids.includes("drip") || ids.includes("icicles") ? "drip" : ids[0];
+    const s = scaledSource(base, m.tw, m.th, look, it.stack ? 0.85 : 1);
+    if (it.stack) for (const e of st.entries) { const t = FX.BY_ID[e.effect].thumb; if (t) Object.assign(e.values, t); }
+    const res = FX.renderStack(s, st);
+    const cv = document.createElement("canvas"); cv.width = m.tw; cv.height = m.th;
+    const x = cv.getContext("2d");
+    paintBg(x, m.tw, m.th, 9);
+    drawStack(x, s, res, 0, 0);   // s is already tile-sized, so it sits at 0,0
+    send({ type: "thumb", key: it.key, url: cv.toDataURL("image/png") });
+  } catch (e) { send({ type: "error", error: "thumb " + it.key + ": " + String(e && e.message || e) }); }
+  setTimeout(thumbStep, 0);
 }
 
 // ---------------------------------------------------------------- messages
@@ -452,7 +471,13 @@ function handle(m) {
     send({ type: "sourceLoaded", w: m.w, h: m.h });
     render();
   }
-  else if (m.cmd === "params") { if (!dragging) state = { effect: m.effect, values: Object.assign({}, m.values) }; bg = m.bg | 0; render(); }
+  else if (m.cmd === "params") {
+    if (!dragging) {
+      stack = FX.normStack(m.stack);
+      state = stack.entries.find((e) => e.uid === m.sel) || null;
+    }
+    bg = m.bg | 0; render();
+  }
   else if (m.cmd === "thumbs") makeThumbs(m);
   else if (m.cmd === "clear") {
     src = null; geo = null; gpuPad = null;

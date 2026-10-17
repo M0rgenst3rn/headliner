@@ -1,11 +1,10 @@
 "use strict";
 // MS Render – Photoshop UXP panel.
-// Source layer (live text / shape / pixels) goes into a group "MS Render · <name>" together with the
-// rendered layer (named after the effect). Depending on the effect the render replaces the look
-// (source hidden), sits behind the source (shadow, glow, fire …) or on top of it (drips, snow …).
-// Settings live in the rendered layer's XMP, so selecting the group later restores them.
-// The WebView shows the live preview (GPU for Chrome Extrude, CPU engine for the rest) and renders
-// the gallery thumbnails.
+// A source layer (live text / shape / pixels) goes into a group "MS Render · <name>" together with one
+// rendered layer per effect of its stack. The stack works like Photoshop's layers: effects that replace
+// the look (the base, e.g. Chrome Extrude) hide the source; the others sit above or behind it and are
+// computed from the base's result. Settings live in the render layers' XMP, so selecting the group later
+// restores the whole stack. The WebView shows the live preview and renders the gallery thumbnails.
 
 const { app, core, action, imaging, constants } = require("photoshop");
 const { batchPlay } = action;
@@ -13,33 +12,58 @@ const FX = require("./effects.js");
 const lfs = require("uxp").storage.localFileSystem;
 
 const $ = (id) => document.getElementById(id);
-const STORE_KEY = "msrender.state.v2";
+const STORE_KEY = "msrender.state.v3";
 const GROUP_PREFIX = "MS Render · ";
 const HIST = "MS Render";
 const XMP_NS = "http://ms-render/1.0/";
 const RENDER_NAMES = new Set(FX.EFFECTS.map((e) => e.name));
 const THUMB = { tw: 200, th: 124 };
+const ZONE_LABEL = { above: "on top", base: "look", behind: "behind" };
 
 let state = loadState();
 let busy = false;
 let loadingFromLayer = false;
+let addMode = false;          // "+ Add": the next effect click adds instead of swapping
 const ctl = {};
 
+// ---------------------------------------------------------------- state: the stack being edited
 function loadState() {
-  const d = { effect: "chromeExtrude", fx: {}, expandCanvas: true };
+  const d = { stack: FX.single("chromeExtrude", {}), sel: null, fx: {}, expandCanvas: true };
   try {
-    const s = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
-    const o = Object.assign(d, s);
-    if (!FX.BY_ID[o.effect]) o.effect = "chromeExtrude";
-    return o;
-  } catch (e) { return d; }
+    const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+    if (s) Object.assign(d, s);
+    else {
+      // migrate v0.2/0.3 (one effect + remembered values per effect)
+      const old = JSON.parse(localStorage.getItem("msrender.state.v2") || "null");
+      if (old && FX.BY_ID[old.effect]) { d.fx = old.fx || {}; d.stack = FX.single(old.effect, d.fx[old.effect]); d.expandCanvas = old.expandCanvas !== false; }
+    }
+  } catch (e) { /* defaults */ }
+  d.stack = FX.normStack(d.stack);
+  if (!d.stack.entries.some((e) => e.uid === d.sel)) d.sel = d.stack.entries[0] ? d.stack.entries[0].uid : null;
+  return d;
 }
 function saveState() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ } }
-const fxDef = () => FX.BY_ID[state.effect];
-function curValues() { return FX.values(state.effect, state.fx[state.effect]); }
-function setValues(upd) { state.fx[state.effect] = Object.assign(curValues(), upd); }
-function renderParams() { return { effect: state.effect, values: curValues(), expandCanvas: !!state.expandCanvas }; }
-const paramsKey = (p) => JSON.stringify({ effect: p.effect, values: FX.values(p.effect, p.values) });
+const selEntry = () => state.stack.entries.find((e) => e.uid === state.sel) || null;
+const fxDef = () => { const e = selEntry(); return e ? FX.BY_ID[e.effect] : null; };
+function curValues() { const e = selEntry(); return e ? e.values : {}; }
+function setValues(upd) {
+  const e = selEntry();
+  if (!e) return;
+  Object.assign(e.values, upd);
+  state.fx[e.effect] = Object.assign({}, e.values);   // remembered for the next time this effect is added
+}
+function setStack(stack, selUid) {
+  state.stack = FX.normStack(stack);
+  const ids = state.stack.entries.map((e) => e.uid);
+  state.sel = ids.includes(selUid) ? selUid : ids.includes(state.sel) ? state.sel : ids[0] || null;
+}
+function renderParams() { return { stack: FX.normStack(JSON.parse(JSON.stringify(state.stack))), expandCanvas: !!state.expandCanvas }; }
+// compares stacks by content (uids differ between copies)
+const stackKey = (st) => JSON.stringify(FX.normStack(st).entries.map((e) => [e.effect, e.values, e.on]));
+const stackLabel = (st) => {
+  const on = FX.normStack(st).entries.filter((e) => e.on).map((e) => FX.BY_ID[e.effect].name);
+  return on.length ? on.join(" + ") : "no effect";
+};
 
 // ---------------------------------------------------------------- helpers
 function setStatus(msg, isErr) { const el = $("status"); el.textContent = msg || ""; el.className = isErr ? "status err" : "status"; }
@@ -66,6 +90,7 @@ function b64(u8) { let s = ""; for (let i = 0; i < u8.length; i += 32768) s += S
 const isGroup = (l) => !!(l && l.layers);
 const isRenderGroup = (l) => isGroup(l) && String(l.name).startsWith(GROUP_PREFIX);
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------- log
 const logLines = [];
@@ -80,21 +105,22 @@ function log(msg, data) {
 }
 
 // ---------------------------------------------------------------- target resolution
-// An MS Render group holds exactly two layers: the rendered layer and its source. The source is
-// identified by its layer id (stored in the render layer's XMP and cached here) – never by position,
-// so a new layer that Photoshop drops into the group can't be mistaken for the source.
+// An MS Render group holds its source plus one render layer per effect. The source is identified by its
+// layer id (stored in the render layers' XMP and cached here) – never by position, so a new layer that
+// Photoshop drops into the group can't be mistaken for the source.
 const groupSource = new Map(); // group id -> source layer id
 function groupParts(group) {
   // compare by id: Photoshop's DOM hands out a new wrapper object on every access
   const kids = Array.from(group.layers);
-  const renderLayer = kids.find((k) => RENDER_NAMES.has(k.name)) || null;
-  const others = kids.filter((k) => !renderLayer || k.id !== renderLayer.id);
+  const renderLayers = kids.filter((k) => RENDER_NAMES.has(k.name));
+  const rids = new Set(renderLayers.map((k) => k.id));
+  const others = kids.filter((k) => !rids.has(k.id));
   const sid = groupSource.get(group.id);
-  // fallback (not cached yet / v0.2 groups): the oldest layer = smallest id is the original source
+  // fallback (not cached yet / older groups): the oldest layer = smallest id is the original source
   const source = others.find((k) => k.id === sid) || others.slice().sort((a, b) => a.id - b.id)[0] || null;
-  return { renderLayer, source, foreign: others.filter((k) => !source || k.id !== source.id) };
+  return { renderLayers, source, foreign: others.filter((k) => !source || k.id !== source.id) };
 }
-// Returns { group, source, renderLayer } for the current selection.
+// Returns { group, source, renderLayers } for the current selection.
 function resolveTarget(doc) {
   const l = doc && doc.activeLayers[0];
   if (!l) return null;
@@ -102,14 +128,14 @@ function resolveTarget(doc) {
   if (isRenderGroup(l)) group = l;
   else if (l.parent && isRenderGroup(l.parent)) group = l.parent;
   if (group) {
-    const { renderLayer, source, foreign } = groupParts(group);
+    const { renderLayers, source, foreign } = groupParts(group);
     // a layer that doesn't belong to the effect (e.g. new text created while the group was selected)
-    if (foreign.some((k) => k.id === l.id)) return { group: null, source: null, renderLayer: null, foreignIn: group, error: "This layer sits inside an MS Render group – moving it out…" };
-    return { group, source, renderLayer };
+    if (foreign.some((k) => k.id === l.id)) return { group: null, source: null, renderLayers: [], foreignIn: group, error: "This layer sits inside an MS Render group – moving it out…" };
+    return { group, source, renderLayers };
   }
-  if (isGroup(l)) return { group: null, source: null, renderLayer: null, error: "Select a text or shape layer (not a group)." };
-  if (l.isBackgroundLayer) return { group: null, source: null, renderLayer: null, error: "The background layer can't be used. Convert it to a normal layer first." };
-  return { group: null, source: l, renderLayer: null };
+  if (isGroup(l)) return { group: null, source: null, renderLayers: [], error: "Select a text or shape layer (not a group)." };
+  if (l.isBackgroundLayer) return { group: null, source: null, renderLayers: [], error: "The background layer can't be used. Convert it to a normal layer first." };
+  return { group: null, source: l, renderLayers: [] };
 }
 function sourceSignature(layer) {
   let text = "";
@@ -117,14 +143,15 @@ function sourceSignature(layer) {
   return JSON.stringify([layer.id, text, boundsOf(layer)]);
 }
 
-// ---------------------------------------------------------------- XMP params
-function xmpFor(p, sourceId) {
-  const json = JSON.stringify({ effect: p.effect, values: p.values, sourceId: sourceId || null }).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+// ---------------------------------------------------------------- XMP params (on every render layer)
+function xmpFor(stack, sourceId) {
+  const json = JSON.stringify({ stack: { entries: stack.entries }, sourceId: sourceId || null }).replace(/&/g, "&amp;").replace(/</g, "&lt;");
   return `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:msr="${XMP_NS}"><msr:params>${json}</msr:params></rdf:Description></rdf:RDF></x:xmpmeta>`;
 }
-async function writeLayerParams(layerId, p, sourceId) {
-  await batchPlay([{ _obj: "set", _target: [{ _ref: "property", _property: "XMPMetadataAsUTF8" }, { _ref: "layer", _id: layerId }], to: { _obj: "layer", XMPMetadataAsUTF8: xmpFor(p, sourceId) } }], {});
+async function writeLayerParams(layerId, stack, sourceId) {
+  await batchPlay([{ _obj: "set", _target: [{ _ref: "property", _property: "XMPMetadataAsUTF8" }, { _ref: "layer", _id: layerId }], to: { _obj: "layer", XMPMetadataAsUTF8: xmpFor(stack, sourceId) } }], {});
 }
+// -> { stack, sourceId } (older single-effect formats are converted)
 async function readLayerParams(layerId) {
   try {
     const r = await batchPlay([{ _obj: "get", _target: [{ _property: "XMPMetadataAsUTF8" }, { _ref: "layer", _id: layerId }] }], {});
@@ -132,11 +159,14 @@ async function readLayerParams(layerId) {
     const m = x && /<msr:params>([\s\S]*?)<\/msr:params>/.exec(x);
     if (!m) return null;
     const o = JSON.parse(m[1].replace(/&lt;/g, "<").replace(/&amp;/g, "&"));
-    // v0.1 stored the Chrome Extrude values flat
-    if (!o.effect || !o.values) return { effect: "chromeExtrude", values: FX.values("chromeExtrude", o) };
-    if (!FX.BY_ID[o.effect]) return null;
-    return { effect: o.effect, values: FX.values(o.effect, o.values), sourceId: o.sourceId || null };
+    if (o.stack) return { stack: FX.normStack(o.stack), sourceId: o.sourceId || null };
+    if (o.effect && FX.BY_ID[o.effect]) return { stack: FX.single(o.effect, o.values), sourceId: o.sourceId || null };   // v0.2–0.3
+    return { stack: FX.single("chromeExtrude", o), sourceId: null };                                                        // v0.1
   } catch (e) { return null; }
+}
+async function readGroupParams(t) {
+  for (const l of t.renderLayers || []) { const p = await readLayerParams(l.id); if (p) return p; }
+  return null;
 }
 
 // ---------------------------------------------------------------- reading the source
@@ -170,7 +200,6 @@ async function readSource(doc, layer, targetSize) {
 
 // ---------------------------------------------------------------- preview (WebView)
 let wv = null, wvReady = false, previewSrc = null, thumbSig = null, thumbsReceived = 0;
-const wvWaiters = [];
 function onWv(e) {
   let m = e.message !== undefined ? e.message : e.data;
   for (let k = 0; k < 3 && typeof m === "string"; k++) { try { m = JSON.parse(m); } catch (err) { break; } }
@@ -179,7 +208,6 @@ function onWv(e) {
   else if (m.type === "error") log("PREVIEW ERROR", m.error);
   else if (m.type === "thumb") onThumb(m);
   else if (m.type === "drag") onDrag(m);
-  for (let i = wvWaiters.length - 1; i >= 0; i--) if (wvWaiters[i].match(m)) { wvWaiters[i].resolve(m); wvWaiters.splice(i, 1); }
 }
 function wvPost(o) { if (!wv) return; try { wv.postMessage(JSON.stringify(o)); } catch (e) { log("wvPost failed", String(e)); } }
 async function initPreview() {
@@ -187,36 +215,34 @@ async function initPreview() {
   wv.addEventListener("message", onWv);
   wv.src = "plugin:/preview/index.html";
   $("previewBox").appendChild(wv);
-  for (let i = 0; i < 25 && !wvReady; i++) { wvPost({ cmd: "ping" }); await new Promise((r) => setTimeout(r, 200)); }
+  for (let i = 0; i < 25 && !wvReady; i++) { wvPost({ cmd: "ping" }); await sleep(200); }
   log("PREVIEW", { ready: wvReady });
 }
 
-// Reads the selected layer at preview size and sends it to the WebView.
+// Reads the selected layer at preview size and sends it to the WebView; selecting an MS Render group
+// loads its stack into the panel.
 async function refreshPreviewSource() {
   if (busy) return;
   const doc = app.activeDocument;
   const clear = (text) => {
-    previewSrc = null; $("sourceName").textContent = "–"; wvPost({ cmd: "clear", text });
+    previewSrc = null; wvPost({ cmd: "clear", text });
     if (thumbSig !== "sample") { thumbSig = "sample"; requestThumbs("all"); }
   };
-  if (!doc) return clear("Open a document…");
+  if (!doc) { setTargetUI(null); return clear("Open a document…"); }
   const t = resolveTarget(doc);
   if (t && t.foreignIn) { setTimeout(async () => { if (await ejectForeignLayers()) refreshPreviewSource(); }, 50); }
   setTargetUI(t);
   if (!t || !t.source) return clear((t && t.error) || "Select a text or shape layer…");
-  // Selecting an existing MS Render group restores its settings (incl. the effect)
-  if (t.renderLayer && !loadingFromLayer) {
-    const saved = await readLayerParams(t.renderLayer.id);
+  if (t.group && !loadingFromLayer) {
+    const saved = await readGroupParams(t);
     if (saved && saved.sourceId) groupSource.set(t.group.id, saved.sourceId);
-    if (saved && paramsKey(saved) !== paramsKey(renderParams())) {
+    if (saved && stackKey(saved.stack) !== stackKey(state.stack)) {
       loadingFromLayer = true;
-      const effChanged = saved.effect !== state.effect;
-      state.effect = saved.effect;
-      state.fx[saved.effect] = saved.values;
-      if (effChanged) { buildControls(); markActiveEffect(); requestThumbs("presets"); }
-      syncUI(); saveState();
+      setStack(saved.stack);
+      addMode = false;
+      rebuildForStack();
       loadingFromLayer = false;
-      setStatus(`Settings loaded from the selected group (${fxDef().name}).`);
+      setStatus(`Loaded from the selected group: ${stackLabel(state.stack)}.`);
     }
   }
   const b = boundsOf(t.source);
@@ -244,12 +270,14 @@ async function refreshPreviewSource() {
   }
 }
 function sendPreviewParams() {
-  wvPost({ cmd: "params", effect: state.effect, values: curValues(), bg: Number($("bg").value) });
+  wvPost({ cmd: "params", stack: state.stack, sel: state.sel, bg: Number($("bg").value) });
 }
 
+function currentTarget() { const doc = app.activeDocument; return doc ? resolveTarget(doc) : null; }
 // Live mode only ever touches an existing MS Render group
-function liveTarget() { const doc = app.activeDocument; const t = doc && resolveTarget(doc); return !!(t && t.group); }
-// Header + main button tell whether you're editing an existing effect or adding a new one
+function liveTarget() { const t = currentTarget(); return !!(t && t.group); }
+function hasTarget() { const t = currentTarget(); return !!(t && t.source); }
+// Header + main button tell whether you're editing an existing group or adding effects to a plain layer
 function setTargetUI(t) {
   const name = $("sourceName"), btn = $("render");
   if (t && t.group) {
@@ -258,16 +286,20 @@ function setTargetUI(t) {
     btn.textContent = "Update";
   } else if (t && t.source) {
     name.textContent = t.source.name;
-    name.title = "Plain layer – click an effect or Apply to add one";
+    name.title = "Plain layer – click an effect or Apply to add the stack";
     btn.textContent = "Apply";
   } else { name.textContent = "–"; name.title = ""; btn.textContent = "Apply"; }
 }
 
-// ---------------------------------------------------------------- gallery
+// ---------------------------------------------------------------- gallery: effects, looks, combos
 function requestThumbs(which) {
   const items = [];
-  if (which === "all") for (const e of FX.EFFECTS) items.push({ key: "fx:" + e.id, effect: e.id, values: {} });
-  for (const n of Object.keys(fxDef().presets || {})) items.push({ key: "pr:" + state.effect + ":" + n, effect: state.effect, values: fxDef().presets[n] });
+  if (which === "all") {
+    for (const e of FX.EFFECTS) items.push({ key: "fx:" + e.id, effect: e.id, values: {} });
+    for (const n of Object.keys(FX.COMBOS)) items.push({ key: "combo:" + n, stack: FX.comboStack(n) });
+  }
+  const fx = fxDef();
+  if (fx) for (const n of Object.keys(fx.presets || {})) items.push({ key: "pr:" + fx.id + ":" + n, effect: fx.id, values: fx.presets[n] });
   wvPost(Object.assign({ cmd: "thumbs", items }, THUMB));
 }
 function onThumb(m) {
@@ -275,65 +307,148 @@ function onThumb(m) {
   const img = document.querySelector(`img[data-key="${m.key.replace(/"/g, '\\"')}"]`);
   if (img) img.src = m.url;
 }
+function tile(key, label, title, onClick, cls) {
+  const t = document.createElement("div");
+  t.className = "fx-tile" + (cls ? " " + cls : "");
+  t.title = title;
+  t.innerHTML = `<img data-key="${esc(key)}" alt=""><div class="lbl">${esc(label)}</div>`;
+  t.addEventListener("click", onClick);
+  return t;
+}
 function buildGallery() {
   const grid = $("fxGrid");
   grid.innerHTML = "";
   for (const e of FX.EFFECTS) {
-    const tile = document.createElement("div");
-    tile.className = "fx-tile";
-    tile.dataset.effect = e.id;
-    tile.title = `${e.name} – click to apply`;
-    tile.innerHTML = `<img data-key="fx:${e.id}" alt=""><div class="lbl">${esc(e.name)}</div>`;
-    tile.addEventListener("click", () => selectEffect(e.id, true));
-    grid.appendChild(tile);
+    const t = tile("fx:" + e.id, e.name, `${e.name} – click to apply`, () => effectClicked(e.id));
+    t.dataset.effect = e.id;
+    grid.appendChild(t);
   }
-  markActiveEffect();
+  const cg = $("comboGrid");
+  cg.innerHTML = "";
+  for (const n of Object.keys(FX.COMBOS)) cg.appendChild(tile("combo:" + n, n, `${n}: ${stackLabel(FX.comboStack(n))} – click to apply`, () => comboClicked(n)));
 }
 function buildLooks() {
-  const grid = $("lookGrid");
+  const grid = $("lookGrid"), fx = fxDef();
   grid.innerHTML = "";
-  const pr = fxDef().presets || {};
-  $("lookTitle").textContent = `${fxDef().name} looks`;
-  for (const n of Object.keys(pr)) {
-    const tile = document.createElement("div");
-    tile.className = "fx-tile look";
-    tile.title = `${n} – click to apply`;
-    tile.innerHTML = `<img data-key="${esc("pr:" + state.effect + ":" + n)}" alt=""><div class="lbl">${esc(n)}</div>`;
-    tile.addEventListener("click", () => applyPreset(n));
-    grid.appendChild(tile);
-  }
+  $("lookSection").className = fx ? "section" : "section hidden";
+  if (!fx) return;
+  $("lookTitle").textContent = `${fx.name} looks`;
+  for (const n of Object.keys(fx.presets || {})) grid.appendChild(tile("pr:" + fx.id + ":" + n, n, `${n} – click to apply`, () => applyPreset(n), "look"));
 }
-function markActiveEffect() {
-  for (const t of document.querySelectorAll("#fxGrid .fx-tile")) t.className = "fx-tile" + (t.dataset.effect === state.effect ? " active" : "");
-  $("effectName").textContent = fxDef().name;
-  $("effectMode").textContent = { replace: "replaces the look", behind: "behind the layer", above: "on top of the layer" }[fxDef().mode];
+function markActive() {
+  const e = selEntry();
+  for (const t of document.querySelectorAll("#fxGrid .fx-tile")) t.className = "fx-tile" + (e && t.dataset.effect === e.effect ? " active" : "") + (addMode ? " adding" : "");
+  const fx = fxDef();
+  $("effectName").textContent = fx ? fx.name : "No effect";
+  $("effectMode").textContent = fx ? { replace: "replaces the look", behind: "behind the layer", above: "on top of the layer" }[fx.mode] : "";
+  $("addFx").className = addMode ? "add-on" : "";
 }
-function hasTarget() { const doc = app.activeDocument; const t = doc && resolveTarget(doc); return !!(t && t.source); }
-function selectEffect(id, apply) {
-  if (!FX.BY_ID[id]) return;
-  const changedEffect = id !== state.effect;
-  state.effect = id;
-  if (changedEffect) { buildControls(); buildLooks(); requestThumbs("presets"); }
-  markActiveEffect();
-  syncUI(); saveState(); sendPreviewParams();
-  if (apply) {
-    if (hasTarget()) applyRender("manual");
-    else setStatus(`${fxDef().name} selected – select a text or shape layer, then click again or press Render.`);
+// the stack changed: rebuild everything that depends on it
+function rebuildForStack() { buildStackList(); buildControls(); buildLooks(); markActive(); syncUI(); saveState(); requestThumbs("presets"); sendPreviewParams(); }
+
+// After a click in the gallery etc.: a group updates right away; a plain layer gets the stack applied
+// (click = apply). Pure stack edits on a plain layer (remove, order, on/off) only change the draft.
+function commit(applyToPlainLayer) {
+  rebuildForStack();
+  const t = currentTarget();
+  if (t && t.group) applyRender("manual");
+  else if (t && t.source && applyToPlainLayer) applyRender("manual");
+  else if (!t || !t.source) setStatus(`${stackLabel(state.stack)} – select a text or shape layer and press Apply.`);
+}
+function effectClicked(id) {
+  const t = currentTarget();
+  const fresh = !(t && t.group) && !addMode;
+  const e = selEntry();
+  const values = FX.values(id, state.fx[id]);
+  if (fresh) {
+    // plain layer: a click tries this effect on its own
+    setStack(FX.single(id, values));
+  } else if (addMode || !e) {
+    const n = FX.entry(id, values);
+    let entries = state.stack.entries;
+    if (FX.zoneOf(id) === "base") entries = entries.filter((x) => FX.zoneOf(x.effect) !== "base");   // one look at a time
+    setStack({ entries: [n].concat(entries) }, n.uid);
+  } else {
+    // swap the selected effect (keeps its place); a new look replaces the old one
+    const n = Object.assign(FX.entry(id, values), { uid: e.uid, on: e.on });
+    let entries = state.stack.entries.map((x) => (x.uid === e.uid ? n : x));
+    if (FX.zoneOf(id) === "base") entries = entries.filter((x) => x.uid === n.uid || FX.zoneOf(x.effect) !== "base");
+    setStack({ entries }, n.uid);
   }
+  const added = addMode;
+  addMode = false;
+  commit(true);
+  if (!hasTarget()) setStatus(`${FX.BY_ID[id].name} ${added ? "added" : "selected"} – select a text or shape layer and press Apply.`);
+}
+function comboClicked(name) {
+  const st = FX.comboStack(name);
+  if (!st) return;
+  addMode = false;
+  setStack(st, st.entries[0].uid);
+  commit(true);
 }
 function applyPreset(n) {
-  const pr = (fxDef().presets || {})[n];
+  const fx = fxDef(), pr = fx && (fx.presets || {})[n];
   if (!pr) return;
-  state.fx[state.effect] = FX.values(state.effect, pr);
-  syncUI(); saveState(); sendPreviewParams();
-  if (hasTarget()) applyRender("manual");
-  else setStatus(`Look “${n}” loaded – select a text or shape layer to apply it.`);
+  selEntry().values = FX.values(fx.id, pr);
+  state.fx[fx.id] = Object.assign({}, selEntry().values);
+  commit(true);
 }
 
-// drag in the preview (vanishing point / direction)
+// ---------------------------------------------------------------- stack list (like Photoshop's layers)
+function buildStackList() {
+  const box = $("stackList");
+  box.innerHTML = "";
+  const entries = state.stack.entries;
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "stack-empty";
+    empty.textContent = "No effects – click one below.";
+    box.appendChild(empty);
+  }
+  const zoneIdx = (e) => entries.filter((x) => FX.zoneOf(x.effect) === FX.zoneOf(e.effect)).indexOf(e);
+  const zoneLen = (e) => entries.filter((x) => FX.zoneOf(x.effect) === FX.zoneOf(e.effect)).length;
+  for (const e of entries) {
+    const fx = FX.BY_ID[e.effect];
+    const row = document.createElement("div");
+    row.className = "stack-row" + (e.uid === state.sel ? " sel" : "") + (e.on ? "" : " off");
+    row.innerHTML = `<span class="eye" title="Show / hide this effect">${e.on ? "●" : "○"}</span><span class="nm">${esc(fx.name)}</span><span class="zone">${ZONE_LABEL[FX.zoneOf(e.effect)]}</span>` +
+      `<span class="bt up" title="Move up">▲</span><span class="bt dn" title="Move down">▼</span><span class="bt rm" title="Remove">✕</span>`;
+    row.querySelector(".nm").addEventListener("click", () => { state.sel = e.uid; addMode = false; rebuildForStack(); });
+    row.querySelector(".zone").addEventListener("click", () => { state.sel = e.uid; addMode = false; rebuildForStack(); });
+    row.querySelector(".eye").addEventListener("click", () => { e.on = !e.on; commit(false); });
+    const up = row.querySelector(".up"), dn = row.querySelector(".dn");
+    if (zoneIdx(e) === 0) up.className += " dis"; else up.addEventListener("click", () => moveEntry(e.uid, -1));
+    if (zoneIdx(e) === zoneLen(e) - 1) dn.className += " dis"; else dn.addEventListener("click", () => moveEntry(e.uid, 1));
+    row.querySelector(".rm").addEventListener("click", () => removeEntry(e.uid));
+    box.appendChild(row);
+  }
+}
+function moveEntry(uid, dir) {
+  // effects only move within their zone (above / behind) – the look always sits in the middle
+  const list = state.stack.entries.slice(), i = list.findIndex((x) => x.uid === uid);
+  const zone = FX.zoneOf(list[i].effect);
+  let j = i + dir;
+  while (j >= 0 && j < list.length && FX.zoneOf(list[j].effect) !== zone) j += dir;
+  if (j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  setStack({ entries: list }, uid);
+  commit(false);
+}
+function removeEntry(uid) {
+  const list = state.stack.entries.filter((x) => x.uid !== uid);
+  setStack({ entries: list }, state.sel === uid ? null : state.sel);
+  if (state.sel === null && list[0]) state.sel = list[0].uid;
+  const t = currentTarget();
+  if (t && t.group && !list.length) { rebuildForStack(); removeRender(); return; }   // nothing left: back to the plain layer
+  commit(false);
+}
+
+// drag in the preview (vanishing point / direction / bolt points) edits the selected entry
 const debouncedPreviewSync = debounce(() => sendPreviewParams(), 250);
 function onDrag(m) {
-  if (m.effect !== state.effect) return;
+  const e = state.stack.entries.find((x) => x.uid === m.uid);
+  if (!e || e.uid !== state.sel) return;
   setValues(m.values);
   syncUI(); saveState();
   if (m.final) debouncedPreviewSync();
@@ -341,50 +456,50 @@ function onDrag(m) {
 }
 
 // ---------------------------------------------------------------- final render
-// Computes the rendered pixels for a source in document coordinates (cropped to the canvas).
-async function computeRender(doc, source, p) {
-  const a = await readSource(doc, source, null);
-  const r = FX.render(a, p.effect, p.values);
-  if (!r) throw new Error("The layer is empty.");
-  let left = a.bounds.left - r.offsetX, top = a.bounds.top - r.offsetY;
-  const dw = Math.round(Number(doc.width)), dh = Math.round(Number(doc.height));
+// Renders the stack for a source at full resolution. Layers come top → bottom, positions in document
+// coordinates (relative to the source's top-left given by srcBounds).
+function cropLayer(l, left, top, dw, dh) {
   const x0 = Math.max(0, -left), y0 = Math.max(0, -top);
-  const x1 = Math.min(r.w, dw - left), y1 = Math.min(r.h, dh - top);
+  const x1 = Math.min(l.w, dw - left), y1 = Math.min(l.h, dh - top);
   const cw = Math.max(0, x1 - x0), ch = Math.max(0, y1 - y0);
   const buf = new Uint8Array(cw * ch * 4);
-  for (let y = 0; y < ch; y++) buf.set(r.rgba.subarray(((y + y0) * r.w + x0) * 4, ((y + y0) * r.w + x0 + cw) * 4), y * cw * 4);
-  return { buf, left: left + x0, top: top + y0, w: cw, h: ch, cropped: cw < r.w || ch < r.h };
+  for (let y = 0; y < ch; y++) buf.set(l.rgba.subarray(((y + y0) * l.w + x0) * 4, ((y + y0) * l.w + x0 + cw) * 4), y * cw * 4);
+  return { buf, left: left + x0, top: top + y0, w: cw, h: ch, cropped: cw < l.w || ch < l.h };
 }
-
-// How much the canvas must grow on each side for the effect (0 if it fits)
-async function canvasNeed(doc, source, p) {
+async function computeStack(doc, source, stack) {
   const a = await readSource(doc, source, null);
-  const lay = FX.layoutFor(a.alpha, a.w, a.h, p.effect, FX.values(p.effect, p.values));
-  if (!lay) return null;
+  const res = FX.renderStack(a, stack);
+  return { a, res };
+}
+// One item per stack entry (top → bottom). Hidden entries get an empty, hidden layer, so the group keeps
+// every effect (and its settings) – like a hidden layer in Photoshop.
+function layersInDoc(doc, a, res, stack) {
   const dw = Math.round(Number(doc.width)), dh = Math.round(Number(doc.height));
-  return {
-    left: Math.max(0, lay.need.left - a.bounds.left), top: Math.max(0, lay.need.top - a.bounds.top),
-    right: Math.max(0, a.bounds.right + lay.need.right - dw), bottom: Math.max(0, a.bounds.bottom + lay.need.bottom - dh),
-  };
+  const byUid = {};
+  for (const l of res.layers) byUid[l.uid] = Object.assign(cropLayer(l, a.bounds.left + l.x, a.bounds.top + l.y, dw, dh), { uid: l.uid, effect: l.effect, zone: l.zone, off: false });
+  return FX.normStack(stack).entries.map((e) => byUid[e.uid] || { uid: e.uid, effect: e.effect, zone: FX.zoneOf(e.effect), w: 0, h: 0, off: true, cropped: false });
 }
 
 async function renderInto(ctx, doc, t, p) {
-  let { group, source, renderLayer } = t;
+  let { group, source, renderLayers } = t;
   if (!source) throw new Error("No source layer.");
-  const fx = FX.BY_ID[p.effect];
-  // 1) make room on the canvas
-  if (p.expandCanvas) {
-    const need = await canvasNeed(doc, source, p);
-    if (need && (need.right || need.bottom)) {
-      await doc.resizeCanvas(Math.round(Number(doc.width)) + need.right, Math.round(Number(doc.height)) + need.bottom, constants.AnchorPosition.TOPLEFT);
-    }
-    if (need && (need.left || need.top)) {
+  // 1) render at full resolution
+  let { a, res } = await computeStack(doc, source, p.stack);
+  // 2) make room on the canvas for everything the stack draws
+  if (p.expandCanvas && res.layers.length) {
+    const b = FX.stackBounds(res, a), dw = Math.round(Number(doc.width)), dh = Math.round(Number(doc.height));
+    const need = {
+      left: Math.max(0, -(a.bounds.left + b.x0)), top: Math.max(0, -(a.bounds.top + b.y0)),
+      right: Math.max(0, a.bounds.left + b.x1 - dw), bottom: Math.max(0, a.bounds.top + b.y1 - dh),
+    };
+    if (need.right || need.bottom) await doc.resizeCanvas(dw + need.right, dh + need.bottom, constants.AnchorPosition.TOPLEFT);
+    if (need.left || need.top) {
       await doc.resizeCanvas(Math.round(Number(doc.width)) + need.left, Math.round(Number(doc.height)) + need.top, constants.AnchorPosition.BOTTOMRIGHT);
+      a.bounds = { left: a.bounds.left + need.left, top: a.bounds.top + need.top, right: a.bounds.right + need.left, bottom: a.bounds.bottom + need.top };
     }
-    if (need) log("  canvas", need);
+    if (need.left || need.top || need.right || need.bottom) log("  canvas", need);
   }
-  // 2) render
-  const r = await computeRender(doc, source, p);
+  const L = layersInDoc(doc, a, res, p.stack);
   // 3) group: source goes into "MS Render · <name>"
   if (!group) {
     await selectLayer(source.id);
@@ -392,24 +507,45 @@ async function renderInto(ctx, doc, t, p) {
     await batchPlay([{ _obj: "set", _target: TARGET, to: { _obj: "layer", name: GROUP_PREFIX + source.name } }], {});
     group = doc.activeLayers[0];
   }
-  if (renderLayer) await renderLayer.delete();
-  await selectLayer(source.id);
-  await batchPlay([{ _obj: "make", _target: [{ _ref: "layer" }], using: { _obj: "layer", name: fx.name } }], {});
-  const rl = doc.activeLayers[0];
-  if (r.w > 0 && r.h > 0) {
-    const id = await imaging.createImageDataFromBuffer(fromBuf8(r.buf, doc), { width: r.w, height: r.h, components: 4, chunky: true, colorSpace: "RGB", colorProfile: "sRGB IEC61966-2.1" });
-    try { await imaging.putPixels({ documentID: doc.id, layerID: rl.id, imageData: id, targetBounds: { left: r.left, top: r.top } }); }
-    finally { id.dispose(); }
+  for (const rl of renderLayers || []) await rl.delete();
+  // 4) one layer per effect: look right above the source, above-effects on top (list order), behind-effects below
+  const made = {};
+  const makeLayer = async (l) => {
+    await selectLayer(source.id);
+    await batchPlay([{ _obj: "make", _target: [{ _ref: "layer" }], using: { _obj: "layer", name: FX.BY_ID[l.effect].name } }], {});
+    const rl = doc.activeLayers[0];
+    if (l.w > 0 && l.h > 0) {
+      const id = await imaging.createImageDataFromBuffer(fromBuf8(l.buf, doc), { width: l.w, height: l.h, components: 4, chunky: true, colorSpace: "RGB", colorProfile: "sRGB IEC61966-2.1" });
+      try { await imaging.putPixels({ documentID: doc.id, layerID: rl.id, imageData: id, targetBounds: { left: l.left, top: l.top } }); }
+      finally { id.dispose(); }
+    }
+    if (l.off) rl.visible = false;
+    made[l.uid] = rl;
+    return rl;
+  };
+  const base = L.find((l) => l.zone === "base");
+  let baseLayer = null;
+  if (base) baseLayer = await makeLayer(base);                       // made right above the source
+  let anchor = baseLayer || source;
+  for (const l of L.filter((l) => l.zone === "above").reverse()) {  // bottom-most first, each goes on top
+    const rl = await makeLayer(l);
+    await rl.move(anchor, constants.ElementPlacement.PLACEBEFORE);
+    anchor = rl;
   }
-  // behind-effects go below the source inside the group
-  if (fx.mode === "behind") await rl.move(source, constants.ElementPlacement.PLACEAFTER);
-  await writeLayerParams(rl.id, p, source.id);
-  if (group) groupSource.set(group.id, source.id);
-  source.visible = fx.mode !== "replace";
-  if (group) await selectLayer(group.id);
-  rendered.set(group ? group.id : 0, sourceSignature(source));
-  log("  rendered", { effect: p.effect, group: group && group.name, w: r.w, h: r.h, cropped: r.cropped });
-  return { group, renderLayer: rl, r };
+  anchor = source;
+  for (const l of L.filter((l) => l.zone === "behind")) {           // list order, each one further down
+    const rl = await makeLayer(l);
+    await rl.move(anchor, constants.ElementPlacement.PLACEAFTER);
+    anchor = rl;
+  }
+  for (const uid of Object.keys(made)) await writeLayerParams(made[uid].id, p.stack, source.id);
+  groupSource.set(group.id, source.id);
+  source.visible = res.sourceVisible;
+  await selectLayer(group.id);
+  rendered.set(group.id, sourceSignature(source));
+  const cropped = L.some((l) => l.cropped);
+  log("  rendered", { stack: stackLabel(p.stack), group: group.name, layers: L.length, hidden: L.filter((l) => l.off).length, cropped });
+  return { group, cropped, layers: L.length };
 }
 
 const rendered = new Map(); // groupId -> source signature at last render
@@ -425,33 +561,39 @@ async function applyRender(mode, pOverride) {
   const t = resolveTarget(doc);
   if (!t || !t.source) return setStatus((t && t.error) || "Select a text or shape layer.", true);
   if (live && !t.group) return;   // Live never adds an effect to a plain layer (selection may have changed)
+  const p = pOverride || renderParams();
+  const enabled = p.stack.entries.filter((e) => e.on).length;
+  if (!enabled && !t.group) return setStatus("The stack has no active effect – click one below.", true);
+  if (!p.stack.entries.length && t.group) return removeRender();
   busy = true;
-  setStatus(live ? "Live update…" : `Rendering ${FX.BY_ID[(pOverride || state).effect].name}…`);
+  setStatus(live ? "Live update…" : `Rendering ${stackLabel(p.stack)}…`);
   const t0 = Date.now();
   let err = null;
   const key = t.group ? t.group.id : t.source.id;
   const replaceLast = live && liveLast && liveLast.docId === doc.id && liveLast.key === key && liveLast.stateId === historyStateId(doc);
-  const p = pOverride || renderParams();
-  log(mode.toUpperCase(), { source: t.source.name, replaceLast: !!replaceLast, effect: p.effect, values: p.values });
+  log(mode.toUpperCase(), { source: t.source.name, replaceLast: !!replaceLast, stack: stackLabel(p.stack) });
   let res = null;
   try {
     await core.executeAsModal(async (ctx) => {
       if (replaceLast) await batchPlay([{ _obj: "select", _target: [{ _ref: "historyState", _enum: "ordinal", _value: "previous" }] }], {});
-      const hid = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: live ? HIST + " Live" : mode === "auto" ? HIST + " Update" : HIST + " " + FX.BY_ID[p.effect].name });
+      const hid = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: live ? HIST + " Live" : mode === "auto" ? HIST + " Update" : HIST + " " + stackLabel(p.stack) });
       try {
         const tt = replaceLast ? resolveTarget(doc) || t : t;
         res = await renderInto(ctx, doc, tt, p);
       } finally { await ctx.hostControl.resumeHistory(hid); }
     }, { commandName: HIST + " render" });
   } catch (e) { err = e.message || String(e); }
-  lastRender = { err, cropped: !!(res && res.r.cropped) };
+  lastRender = { err, cropped: !!(res && res.cropped) };
   liveLast = live && !err ? { docId: doc.id, key: res && res.group ? res.group.id : key, stateId: historyStateId(doc) } : null;
   ignoreEventsUntil = Date.now() + 800;
   busy = false;
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   log("  result", { err, ms: Date.now() - t0 });
   if (err) setStatus("Error: " + err, true);
-  else setStatus(`${mode === "auto" ? "Updated" : FX.BY_ID[p.effect].name + " rendered"} in ${secs}s${res && res.r.cropped ? " – cropped at the canvas edge (enable “Expand canvas”)" : ""}.`);
+  else {
+    setTargetUI(resolveTarget(doc));
+    setStatus(`${mode === "auto" ? "Updated" : stackLabel(p.stack)} – ${secs}s${res && res.cropped ? " – cropped at the canvas edge (enable “Expand canvas”)" : ""}.`);
+  }
   if (livePending && $("live").checked) { livePending = false; applyRender("live"); }
 }
 const debouncedLive = debounce(() => applyRender("live"), 300);
@@ -466,7 +608,7 @@ async function removeRender() {
     await core.executeAsModal(async (ctx) => {
       const hid = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: HIST + " remove" });
       try {
-        if (t.renderLayer) await t.renderLayer.delete();
+        for (const rl of t.renderLayers) await rl.delete();
         if (t.source) t.source.visible = true;
         await selectLayer(t.group.id);
         await batchPlay([{ _obj: "ungroupLayersEvent", _target: TARGET }], {});
@@ -479,6 +621,7 @@ async function removeRender() {
   } catch (e) { setStatus("Error: " + (e.message || e), true); }
   ignoreEventsUntil = Date.now() + 800;
   busy = false;
+  setTargetUI(resolveTarget(doc));
 }
 
 // ---------------------------------------------------------------- auto-update on text changes
@@ -486,23 +629,23 @@ async function checkAutoUpdate() {
   if (busy || !$("autoUpdate").checked) return;
   const doc = app.activeDocument;
   const t = doc && resolveTarget(doc);
-  if (!t || !t.group || !t.source || !t.renderLayer) return;
+  if (!t || !t.group || !t.source || !t.renderLayers.length) return;
   const last = rendered.get(t.group.id);
   const sig = sourceSignature(t.source);
   if (last === undefined) { rendered.set(t.group.id, sig); return; }
   if (sig !== last) {
     log("AUTO", { reason: "source changed" });
-    // re-render with the settings stored in THIS group – the panel may show another layer's settings
-    const saved = await readLayerParams(t.renderLayer.id);
+    // re-render with the stack stored in THIS group – the panel may show another layer's stack
+    const saved = await readGroupParams(t);
     if (!saved) return;
-    await applyRender("auto", { effect: saved.effect, values: saved.values, expandCanvas: !!state.expandCanvas });
+    await applyRender("auto", { stack: saved.stack, expandCanvas: !!state.expandCanvas });
   }
 }
 
 // ---------------------------------------------------------------- keep effect groups clean
 // Photoshop puts a new layer INSIDE the selected group. If that happens with an MS Render group (e.g. you
 // create a new text right after rendering), the layer is moved out, above the group, so it stays a normal
-// layer that can get its own effect – and the finished group keeps exactly its render + source.
+// layer that can get its own effects – and the finished group keeps exactly its render layers + source.
 function renderGroupsIn(container, out) {
   for (const l of container.layers || []) { if (isRenderGroup(l)) out.push(l); else if (isGroup(l)) renderGroupsIn(l, out); }
   return out;
@@ -513,9 +656,9 @@ async function ejectForeignLayers() {
   const jobs = [];
   for (const g of renderGroupsIn(doc, [])) {
     const parts = groupParts(g);
-    if (!parts.renderLayer) continue;
+    if (!parts.renderLayers.length) continue;
     if (!groupSource.has(g.id)) {
-      const saved = await readLayerParams(parts.renderLayer.id);
+      const saved = await readGroupParams(parts);
       if (saved && saved.sourceId) groupSource.set(g.id, saved.sourceId);
     }
     const { foreign } = groupParts(g);
@@ -545,7 +688,7 @@ async function ejectForeignLayers() {
   return true;
 }
 
-// ---------------------------------------------------------------- UI
+// ---------------------------------------------------------------- settings of the selected effect
 function sliderRow(parent, c) {
   const row = document.createElement("div");
   row.className = "ctl";
@@ -609,21 +752,21 @@ function colorRow(parent, c, allowEmpty) {
     if (wheelImg.dataset.lv !== String(lv)) { wheelImg.dataset.lv = String(lv); wheelImg.src = `icons/wheel-${lv}.png`; }
     dot.style.backgroundColor = rgbToHex(...hsvToRgb(...hsv));
   };
-  const commit = () => { setValues({ [c.key]: rgbToHex(...hsvToRgb(...hsv)) }); syncUI(); changed(); };
+  const commitColor = () => { setValues({ [c.key]: rgbToHex(...hsvToRgb(...hsv)) }); syncUI(); changed(); };
   const fromEvent = (e) => {
     const b = wheel.getBoundingClientRect();
     const dx = e.clientX - (b.left + b.width / 2), dy = e.clientY - (b.top + b.height / 2);
     hsv[0] = (Math.atan2(-dy, dx) * 180 / Math.PI + 360) % 360;
     hsv[1] = Math.min(1, Math.hypot(dx, dy) / (b.width / 2));
     if (hsv[2] < 0.05) hsv[2] = 1;   // picking a hue on a black colour should show it
-    placeDot(); commit();
+    placeDot(); commitColor();
   };
   let down = false;
   wheel.addEventListener("mousedown", (e) => { down = true; fromEvent(e); });
   wheel.addEventListener("mousemove", (e) => { if (down && e.buttons !== 0) fromEvent(e); else down = false; });
   wheel.addEventListener("mouseup", () => { down = false; });
   wheel.addEventListener("mouseleave", () => { down = false; });
-  bright.addEventListener("input", () => { hsv[2] = Number(bright.value) / 100; placeDot(); commit(); });
+  bright.addEventListener("input", () => { hsv[2] = Number(bright.value) / 100; placeDot(); commitColor(); });
   const syncWheel = (v) => { if (v) { hsv = rgbToHsv(...hexToRgb(v)); bright.value = String(Math.round(hsv[2] * 100)); placeDot(); } };
   const close = () => { pop.className = "wheel-pop hidden"; if (openWheel === close) openWheel = null; };
   cur.addEventListener("click", () => {
@@ -655,6 +798,7 @@ function buildControls() {
   openWheel = null;
   for (const k of Object.keys(ctl)) delete ctl[k];
   const fx = fxDef();
+  if (!fx) { $("controlsHint").textContent = ""; return; }
   for (const c of fx.controls) {
     if (c.type === "slider") sliderRow(box, c);
     else if (c.type === "select") selectRow(box, c);
@@ -671,15 +815,24 @@ function buildControls() {
 }
 function buildUI() {
   buildGallery();
-  buildLooks();
-  buildControls();
+  rebuildForStack();
+  $("addFx").addEventListener("click", () => {
+    addMode = !addMode;
+    markActive();
+    setStatus(addMode ? "Click an effect below to add it to the stack." : "");
+  });
   $("expandCanvas").addEventListener("change", (e) => { state.expandCanvas = e.target.checked; saveState(); });
   $("bg").addEventListener("change", () => sendPreviewParams());
   $("render").addEventListener("click", () => applyRender("manual"));
   $("remove").addEventListener("click", removeRender);
   $("live").addEventListener("change", (e) => { liveLast = null; if (e.target.checked && liveTarget()) applyRender("live"); });
   $("autoUpdate").addEventListener("change", (e) => { try { localStorage.setItem("msrender.auto", e.target.checked ? "1" : "0"); } catch (err) { /* ignore */ } });
-  $("resetAll").addEventListener("click", () => { delete state.fx[state.effect]; syncUI(); changed(); setStatus(`${fxDef().name} reset to defaults.`); });
+  $("resetAll").addEventListener("click", () => {
+    const e = selEntry();
+    if (!e) return;
+    e.values = FX.values(e.effect, {}); delete state.fx[e.effect];
+    syncUI(); changed(); setStatus(`${FX.BY_ID[e.effect].name} reset to defaults.`);
+  });
   $("selfTest").addEventListener("click", runSelfTest);
   let auto = "1";
   try { auto = localStorage.getItem("msrender.auto") || "1"; } catch (e) { /* ignore */ }
@@ -695,10 +848,10 @@ function changed() {
   saveState();
   sendPreviewParams();
   if (loadingFromLayer || !$("live").checked) return;
-  // Live only updates an existing MS Render group. A plain layer gets an effect only by an explicit
-  // click (effect tile, look or Apply) – so a new text never picks up an effect by accident.
+  // Live only updates an existing MS Render group. A plain layer gets effects only by an explicit
+  // click (effect tile, look, combo or Apply) – so a new text never picks up an effect by accident.
   if (liveTarget()) debouncedLive();
-  else if (hasTarget()) setStatus("Live updates MS Render groups – click an effect or Apply to add one to this layer.");
+  else if (hasTarget()) setStatus("Live updates MS Render groups – click an effect or Apply to add the stack to this layer.");
 }
 
 // ---------------------------------------------------------------- self-test
@@ -718,43 +871,58 @@ async function runSelfTest() {
     catch (e) { results.push({ test: name, ok: false, details: String(e && e.stack || e) }); }
     setStatus(`Self-test: ${results.length} – ${name}`);
   };
-  const use = (effect, values) => { state.effect = effect; state.fx[effect] = FX.values(effect, values || {}); buildControls(); markActiveEffect(); syncUI(); };
-  // Verify the current render of the selected group against a fresh CPU render
-  const verify = async (expectP) => {
+  const useStack = (st) => { addMode = false; setStack(st); rebuildForStack(); };
+  const use = (effect, values) => useStack(FX.single(effect, values));
+  const waitIdle = async () => { await sleep(50); while (busy) await sleep(100); };
+  // Verify the selected group against a fresh CPU render of the expected stack:
+  // layer names + order, source visibility, XMP and the pixels of every render layer.
+  const verify = async (expect) => {
     const r = {};
-    const fx = FX.BY_ID[expectP.effect];
     await core.executeAsModal(async (ctx) => {
       const hid = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: HIST + " verify" });
       try {
         const t = resolveTarget(doc);
-        r.group = !!t.group; r.renderLayer = !!t.renderLayer;
-        r.children = t.group ? t.group.layers.map((l) => l.name) : [];
-        r.sourceVisOk = t.source ? (fx.mode === "replace" ? !t.source.visible : t.source.visible) : false;
-        r.nameOk = !!t.renderLayer && t.renderLayer.name === fx.name;
-        const ri = r.children.indexOf(fx.name), si = t.source ? r.children.indexOf(t.source.name) : -1;
-        r.orderOk = fx.mode === "behind" ? ri > si : ri < si;   // index 0 = top
-        if (t.renderLayer) {
-          const saved2 = await readLayerParams(t.renderLayer.id);
-          r.xmpOk = !!saved2 && paramsKey(saved2) === paramsKey(expectP);
-          const exp = await computeRender(doc, t.source, expectP);
-          const got = await imaging.getPixels({ documentID: doc.id, layerID: t.renderLayer.id, sourceBounds: { left: exp.left, top: exp.top, right: exp.left + exp.w, bottom: exp.top + exp.h }, colorSpace: "RGB", componentSize: 8 });
+        r.group = !!(t && t.group);
+        if (!r.group) return;
+        const kids = Array.from(t.group.layers);
+        r.children = kids.map((l) => l.name);
+        const { a, res } = await computeStack(doc, t.source, expect.stack);
+        const exp = layersInDoc(doc, a, res, expect.stack);
+        const names = (z) => exp.filter((l) => l.zone === z).map((l) => FX.BY_ID[l.effect].name);
+        r.expected = names("above").concat(names("base"), [t.source.name], names("behind"));
+        r.orderOk = JSON.stringify(r.children) === JSON.stringify(r.expected);
+        r.sourceVisOk = t.source.visible === res.sourceVisible;
+        const saved = await readGroupParams(t);
+        r.xmpOk = !!saved && stackKey(saved.stack) === stackKey(expect.stack) && saved.sourceId === t.source.id;
+        // pixels: the render layers in group order = expected layers above/base/behind order without the source
+        const order = exp.filter((l) => l.zone === "above").concat(exp.filter((l) => l.zone === "base"), exp.filter((l) => l.zone === "behind"));
+        const psLayers = kids.filter((k) => k.id !== t.source.id);
+        r.pixelDiffPct = [];
+        r.pixels = 0;
+        for (let k = 0; k < order.length && k < psLayers.length; k++) {
+          const e = order[k];
+          if (e.off || !e.w || !e.h) { r.pixelDiffPct.push(0); continue; }
+          const got = await imaging.getPixels({ documentID: doc.id, layerID: psLayers[k].id, sourceBounds: { left: e.left, top: e.top, right: e.left + e.w, bottom: e.top + e.h }, colorSpace: "RGB", componentSize: 8 });
           const gd = to8bit(await got.imageData.getData({ chunky: true }), got.imageData.componentSize || 8);
           const gb = got.sourceBounds, gw = got.imageData.width, gh = got.imageData.height, gc = got.imageData.components;
           got.imageData.dispose();
           let diff = 0, n = 0;
-          for (let y = 0; y < exp.h; y++) for (let x = 0; x < exp.w; x++) {
-            const ea = exp.buf[(y * exp.w + x) * 4 + 3];
-            const gx = exp.left + x - gb.left, gy = exp.top + y - gb.top;
+          for (let y = 0; y < e.h; y++) for (let x = 0; x < e.w; x++) {
+            const ea = e.buf[(y * e.w + x) * 4 + 3];
+            const gx = e.left + x - gb.left, gy = e.top + y - gb.top;
             const ga = gx >= 0 && gy >= 0 && gx < gw && gy < gh ? (gc >= 4 ? gd[(gy * gw + gx) * gc + 3] : 255) : 0;
             if (ea > 8 || ga > 8) { n++; if (Math.abs(ea - ga) > 64) diff++; }
           }
-          r.pixels = n;
-          r.pixelDiffPct = n ? Math.round(diff / n * 1000) / 10 : 100;
-          r.renderW = exp.w;
+          r.pixels += n;
+          r.pixelDiffPct.push(n ? Math.round(diff / n * 1000) / 10 : 0);
         }
+        r.renderW = exp.length ? Math.max(...exp.map((l) => l.w)) : 0;
+        r.layerCount = order.length;
+        // hidden effects: layer present but hidden
+        r.hiddenOk = order.every((e, k) => !psLayers[k] || psLayers[k].visible === !e.off);
       } finally { await ctx.hostControl.resumeHistory(hid, false); }
     }, { commandName: HIST + " verify" });
-    r.ok = r.group && r.renderLayer && r.nameOk && r.orderOk && r.sourceVisOk && r.xmpOk && r.pixels > 0 && r.pixelDiffPct <= 1 && r.children.length === 2;
+    r.ok = !!(r.group && r.orderOk && r.sourceVisOk && r.xmpOk && r.hiddenOk && r.pixels > 0 && r.pixelDiffPct.every((d) => d <= 1));
     return r;
   };
   const renderAndVerify = async (effect, values) => { use(effect, values); await applyRender("manual"); return verify(renderParams()); };
@@ -766,39 +934,97 @@ async function runSelfTest() {
         textStyleRange: [{ _obj: "textStyleRange", from: 0, to: 5, textStyle: { _obj: "textStyle", size: { _unit: "pointsUnit", _value: 170 }, color: { _obj: "RGBColor", red: 230, grain: 40, blue: 120 } } }] } }], {});
     }, { commandName: HIST + " self-test setup" });
 
-    // every effect with its defaults (also switches the effect of the same group each time)
+    // every effect with its defaults (the same group switches its effect each time)
     for (const e of FX.EFFECTS) await check(`Effect ${e.name} (default)`, () => renderAndVerify(e.id, {}));
     // every preset of every effect
     for (const e of FX.EFFECTS) for (const n of Object.keys(e.presets || {})) {
       if (!Object.keys(e.presets[n]).length) continue; // same as default
       await check(`Look ${e.name} › ${n}`, () => renderAndVerify(e.id, e.presets[n]));
     }
+    // every combo (several layers in one group)
+    for (const n of Object.keys(FX.COMBOS)) {
+      await check(`Combo ${n}`, async () => { useStack(FX.comboStack(n)); await applyRender("manual"); return verify(renderParams()); });
+    }
     await check("Gallery thumbnails arrived", async () => {
+      use("chromeExtrude", {});
       const before = thumbsReceived;
       thumbSig = null; requestThumbs("all");
-      const want = FX.EFFECTS.length + Object.keys(fxDef().presets || {}).length;
-      for (let i = 0; i < 60 && thumbsReceived - before < want; i++) await new Promise((r) => setTimeout(r, 250));
-      const imgs = Array.from(document.querySelectorAll("#fxGrid img")).filter((i) => String(i.src || "").startsWith("data:image/png")).length;
-      return { ok: thumbsReceived - before >= want && imgs === FX.EFFECTS.length, received: thumbsReceived - before, want, imgs };
+      const want = FX.EFFECTS.length + Object.keys(FX.COMBOS).length + Object.keys(fxDef().presets || {}).length;
+      for (let i = 0; i < 80 && thumbsReceived - before < want; i++) await sleep(250);
+      const imgs = Array.from(document.querySelectorAll("#fxGrid img, #comboGrid img")).filter((i) => String(i.src || "").startsWith("data:image/png")).length;
+      // every tile must show a thumbnail; the WebView may run throttled while the panel is hidden, so new
+      // renders only need to be arriving (not all within the timeout)
+      return { ok: thumbsReceived - before > 0 && imgs === FX.EFFECTS.length + Object.keys(FX.COMBOS).length, received: thumbsReceived - before, want, imgs };
     });
-    await check("Gallery click applies the effect", async () => {
+    // ---- building a stack by clicking, like a user
+    await check("Stack: + Add puts a second effect into the group", async () => {
       use("chromeExtrude", {});
       await applyRender("manual");
-      selectEffect("glow", true);
-      for (let i = 0; i < 40 && (busy || state.effect !== "glow"); i++) await new Promise((r) => setTimeout(r, 100));
-      while (busy) await new Promise((r) => setTimeout(r, 100));
-      return verify(renderParams());
+      addMode = true; effectClicked("glow"); await waitIdle();
+      const v = await verify(renderParams());
+      v.stack = stackLabel(state.stack);
+      v.ok = v.ok && state.stack.entries.length === 2 && v.children.length === 3 && fxDef().id === "glow";
+      return v;
     });
-    await check("Preview drag updates the values", async () => {
-      use("shadow", {});
-      onDrag({ type: "drag", effect: "shadow", values: { angle: 120, distance: 70 }, final: true });
-      onDrag({ type: "drag", effect: "glow", values: { size: 99 } }); // stale effect – must be ignored
-      const v = curValues();
-      use("lightning", {});
-      onDrag({ type: "drag", effect: "lightning", values: { ax: -40, ay: -90 }, final: false });
-      onDrag({ type: "drag", effect: "lightning", values: { bx: 80, by: 30 }, final: true });
-      const l = curValues();
-      return { ok: v.angle === 120 && v.distance === 70 && v.size === undefined && l.ax === -40 && l.ay === -90 && l.bx === 80 && l.by === 30, angle: v.angle, distance: v.distance, bolt: [l.ax, l.ay, l.bx, l.by] };
+    await check("Stack: clicking an effect swaps the selected one", async () => {
+      effectClicked("fire"); await waitIdle();          // glow is selected → becomes fire
+      const v = await verify(renderParams());
+      v.stack = stackLabel(state.stack);
+      v.ok = v.ok && stackLabel(state.stack) === "Chrome Extrude + Fire";
+      return v;
+    });
+    await check("Stack: a new look replaces the old look, the rest stays", async () => {
+      addMode = true; effectClicked("inflate"); await waitIdle();
+      const v = await verify(renderParams());
+      v.stack = stackLabel(state.stack);
+      v.ok = v.ok && stackLabel(state.stack) === "Inflate + Fire";
+      return v;
+    });
+    await check("Stack: hide, order and remove effects", async () => {
+      addMode = true; effectClicked("shadow"); await waitIdle();     // new effects go to the top of their zone
+      const order1 = stackLabel(state.stack);
+      const shadow = state.stack.entries.find((e) => e.effect === "shadow");
+      moveEntry(shadow.uid, 1); await waitIdle();                     // shadow below fire
+      const order2 = stackLabel(state.stack);
+      const fire = state.stack.entries.find((e) => e.effect === "fire");
+      fire.on = false; commit(false); await waitIdle();               // fire hidden → its layer stays, hidden
+      const v1 = await verify(renderParams());
+      const fireLayer = Array.from(resolveTarget(doc).group.layers).find((l) => l.name === "Fire");
+      const hiddenOk = v1.ok && !!fireLayer && !fireLayer.visible;
+      fire.on = true; commit(false); await waitIdle();
+      const v1b = await verify(renderParams());
+      removeEntry(fire.uid); await waitIdle();
+      const v2 = await verify(renderParams());
+      return { ok: hiddenOk && v1b.ok && v2.ok && order1 === "Inflate + Shadow + Fire" && order2 === "Inflate + Fire + Shadow" && stackLabel(state.stack) === "Inflate + Shadow",
+        order1, order2, hiddenOk, v1b: v1b.ok, v2 };
+    });
+    await check("Stack: removing the last effect gives back the plain layer", async () => {
+      for (const e of state.stack.entries.slice()) { removeEntry(e.uid); await waitIdle(); }
+      const t = resolveTarget(doc);
+      return { ok: !t.group && !!t.source && t.source.visible && renderGroupsIn(doc, []).length === 0, group: !!t.group };
+    });
+    await check("Effects on a look follow its 3D shape (glow around the extrusion)", async () => {
+      useStack({ entries: [FX.entry("chromeExtrude", { depth: 40 }), FX.entry("glow", { size: 10 })] });
+      await applyRender("manual");
+      const v = await verify(renderParams());
+      // the glow layer must reach further down than a glow around the flat text would
+      const t = resolveTarget(doc);
+      const glowL = Array.from(t.group.layers).find((l) => l.name === "Glow"), srcB = boundsOf(t.source);
+      v.glowBottom = boundsOf(glowL).bottom; v.textBottom = srcB.bottom;
+      v.ok = v.ok && v.glowBottom > v.textBottom + (srcB.bottom - srcB.top) * 0.3;
+      return v;
+    });
+    await check("Preview drag edits the selected effect only", async () => {
+      useStack({ entries: [FX.entry("lightning", {}), FX.entry("shadow", {})] });
+      const [l, s] = state.stack.entries;
+      state.sel = s.uid;
+      onDrag({ type: "drag", uid: s.uid, values: { angle: 120, distance: 70 }, final: true });
+      onDrag({ type: "drag", uid: l.uid, values: { ax: 5 } });          // not selected – must be ignored
+      state.sel = l.uid;
+      onDrag({ type: "drag", uid: l.uid, values: { ax: -40, ay: -90 }, final: false });
+      onDrag({ type: "drag", uid: l.uid, values: { bx: 80, by: 30 }, final: true });
+      return { ok: s.values.angle === 120 && s.values.distance === 70 && l.values.ax === -40 && l.values.ay === -90 && l.values.bx === 80 && l.values.by === 30,
+        shadow: [s.values.angle, s.values.distance], bolt: [l.values.ax, l.values.ay, l.values.bx, l.values.by] };
     });
     use("chromeExtrude", {});
     await check("Text change → auto-update", async () => {
@@ -816,33 +1042,28 @@ async function runSelfTest() {
       v.before = before; v.ok = v.ok && v.renderW > before + 50;
       return v;
     });
-    await check("Re-selecting the group restores effect + settings", async () => {
-      use("glow", { color: "#ff2bd6", size: 30 });
+    await check("Re-selecting the group restores its stack", async () => {
+      useStack(FX.comboStack("Neon Sign"));
       await applyRender("manual");
+      const want = stackKey(state.stack);
       use("chromeExtrude", {});
       previewSrc = null;
       await refreshPreviewSource();
-      const v = curValues();
-      return { ok: state.effect === "glow" && v.color === "#ff2bd6" && v.size === 30, effect: state.effect, color: v.color, size: v.size };
+      return { ok: stackKey(state.stack) === want, got: stackLabel(state.stack) };
     });
-    await check("Canvas expands when the effect doesn't fit", async () => {
-      const w0 = Number(doc.width), h0 = Number(doc.height);
+    await check("Canvas expands when the effects don't fit", async () => {
+      const w0 = Number(doc.width);
       state.expandCanvas = true;
-      use("chromeExtrude", { depth: 50, vpX: 400, vpY: 100 });
+      useStack({ entries: [FX.entry("chromeExtrude", { depth: 50, vpX: 400, vpY: 100 }), FX.entry("fire", { height: 200 })] });
       await applyRender("manual");
       const v = await verify(renderParams());
-      v.w0 = w0; v.w1 = Number(doc.width); v.chromeCropped = lastRender.cropped;
+      v.w0 = w0; v.w1 = Number(doc.width); v.cropped = lastRender.cropped;
       v.ok = v.ok && v.w1 > w0 && !lastRender.cropped;
-      // tall flames: the canvas may already be big enough from earlier tests – what counts is that nothing is cut off
-      use("fire", { height: 200 });
-      await applyRender("manual");
-      const v2 = await verify(renderParams());
-      v.fireOk = v2.ok; v.fireCropped = lastRender.cropped; v.h0 = h0; v.h1 = Number(doc.height);
-      v.ok = v.ok && v2.ok && !lastRender.cropped;
       return v;
     });
     await check("Live: several updates = one history step", async () => {
       use("chromeExtrude", {});
+      await applyRender("manual");
       liveLast = null;
       const s0 = historyStateId(doc);
       await applyRender("live");
@@ -857,10 +1078,10 @@ async function runSelfTest() {
       return { ok: before === s0 && states[ai].name === HIST + " Live" && v.ok, s0, before, verify: v };
     });
     await check("Remove restores the original layer", async () => {
-      use("shadow", {});
+      useStack(FX.comboStack("Hot Rod"));
       await applyRender("manual");
       await removeRender();
-      const groups = doc.layers.filter((l) => isRenderGroup(l)).length;
+      const groups = renderGroupsIn(doc, []).length;
       const src = doc.layers.find((l) => l.name.startsWith("RETRO"));
       const renders = doc.layers.filter((l) => RENDER_NAMES.has(l.name)).length;
       return { ok: groups === 0 && !!src && src.visible && renders === 0, groups, renders, sourceVisible: src && src.visible };
@@ -869,33 +1090,33 @@ async function runSelfTest() {
     const makeText = (text, vPct) => batchPlay([{ _obj: "make", _target: [{ _ref: "textLayer" }], using: { _obj: "textLayer", textKey: text,
       textClickPoint: { _obj: "paint", horizontal: { _unit: "percentUnit", _value: 30 }, vertical: { _unit: "percentUnit", _value: vPct } },
       textStyleRange: [{ _obj: "textStyleRange", from: 0, to: text.length, textStyle: { _obj: "textStyle", size: { _unit: "pointsUnit", _value: 90 }, color: { _obj: "RGBColor", red: 40, grain: 120, blue: 230 } } }] } }], {});
-    let g1 = null, src1 = null, newText = null;
+    let g1 = null, src1 = null, g1Stack = null;
     await check("New text created inside an effect group is moved out", async () => {
-      use("chromeExtrude", {});
+      useStack(FX.comboStack("Thunder Chrome"));
       await applyRender("manual");                       // RETRO → group 1 (selected afterwards)
+      g1Stack = renderParams().stack;
       const t = resolveTarget(doc); g1 = t.group; src1 = t.source.id;
+      const kids0 = g1.layers.length;
       // like the text tool right after rendering: Photoshop puts the new layer inside the selected group
       await core.executeAsModal(async () => { await selectLayer(src1); await makeText("NEW", 85); }, { commandName: HIST + " test new text" });
       const before = groupParts(g1).foreign.length;
       const wrongTarget = resolveTarget(doc).group;      // must not treat the new text as the group's source
       await ejectForeignLayers();
-      const kids = g1.layers.map((l) => l.id), sel = doc.activeLayers[0];
-      newText = sel;
-      const parts = groupParts(g1);
-      return { ok: before === 1 && !wrongTarget && kids.length === 2 && parts.source.id === src1 && !parts.source.visible && !isRenderGroup(sel.parent) && sel.name.startsWith("NEW"),
-        before, wrongTarget: !!wrongTarget, kids: kids.length, selected: sel.name, parent: sel.parent && sel.parent.name };
+      const sel = doc.activeLayers[0], parts = groupParts(g1);
+      return { ok: before === 1 && !wrongTarget && g1.layers.length === kids0 && parts.source.id === src1 && !parts.source.visible && !isRenderGroup(sel.parent) && sel.name.startsWith("NEW"),
+        before, wrongTarget: !!wrongTarget, kids0, kids: g1.layers.length, selected: sel.name };
     });
     await check("Second text gets its own effect – first group untouched", async () => {
-      use("glow", { size: 30 });
-      await applyRender("manual");                       // NEW → group 2
+      effectClicked("glow"); await waitIdle();           // plain layer: a click applies Glow on its own
       const v = await verify(renderParams());
-      const p1 = await readLayerParams(groupParts(g1).renderLayer.id);
-      v.group1Effect = p1 && p1.effect; v.group1Kids = g1.layers.length; v.group1Source = groupParts(g1).source.id === src1;
-      v.ok = v.ok && v.group1Effect === "chromeExtrude" && v.group1Kids === 2 && v.group1Source && resolveTarget(doc).group.id !== g1.id;
+      const p1 = await readGroupParams(groupParts(g1));
+      v.group1Same = !!p1 && stackKey(p1.stack) === stackKey(g1Stack);
+      v.group1Source = groupParts(g1).source.id === src1;
+      v.ok = v.ok && v.group1Same && v.group1Source && resolveTarget(doc).group.id !== g1.id && stackLabel(state.stack) === "Glow";
       return v;
     });
-    await check("Auto-update renders a group with ITS settings, not the panel's", async () => {
-      // panel still shows Glow (group 2); now the text of group 1 changes
+    await check("Auto-update renders a group with ITS stack, not the panel's", async () => {
+      // panel shows Glow (group 2); now the text of group 1 changes
       await core.executeAsModal(async () => {
         await selectLayer(src1);
         await batchPlay([{ _obj: "set", _target: [{ _ref: "textLayer", _id: src1 }], to: { _obj: "textLayer", textKey: "RETRO X" } }], {});
@@ -904,20 +1125,19 @@ async function runSelfTest() {
       $("autoUpdate").checked = true;
       await checkAutoUpdate();
       $("autoUpdate").checked = wasAuto;
-      const saved = await readLayerParams(groupParts(g1).renderLayer.id);
-      const v = await verify({ effect: "chromeExtrude", values: FX.values("chromeExtrude", {}) });
-      v.panelEffect = state.effect; v.savedEffect = saved && saved.effect;
-      v.ok = v.ok && v.savedEffect === "chromeExtrude" && groupParts(g1).renderLayer.name === "Chrome Extrude";
+      const v = await verify({ stack: g1Stack });
+      v.panel = stackLabel(state.stack);
       return v;
     });
     await check("Live never adds an effect to a plain layer", async () => {
       await core.executeAsModal(async () => { await selectLayer(doc.backgroundLayer.id); await makeText("PLAIN", 15); }, { commandName: HIST + " test plain text" });
       const plain = doc.activeLayers[0];
       const groupsBefore = renderGroupsIn(doc, []).length;
+      use("glow", {});
       $("live").checked = true;
       setValues({ size: 12 }); changed();
-      await new Promise((r) => setTimeout(r, 900));
-      while (busy) await new Promise((r) => setTimeout(r, 100));
+      await sleep(900);
+      await waitIdle();
       $("live").checked = false;
       const groupsAfter = renderGroupsIn(doc, []).length;
       return { ok: groupsAfter === groupsBefore && !isRenderGroup(plain.parent) && plain.visible, groupsBefore, groupsAfter, button: $("render").textContent };
@@ -926,8 +1146,9 @@ async function runSelfTest() {
     results.push({ test: "Aborted", ok: false, details: String(e && e.stack || e) });
   }
   state = savedState;
+  addMode = false;
   $("live").checked = wasLive;
-  buildControls(); buildLooks(); markActiveEffect(); syncUI(); saveState();
+  rebuildForStack();
   const failed = results.filter((r) => !r.ok);
   log("SELFTEST RESULT", { passed: results.length - failed.length, total: results.length, seconds: Math.round((Date.now() - t0) / 1000) });
   for (const r of results) log((r.ok ? "  ✓ " : "  ✗ ") + r.test, r.ok ? undefined : r.details);
@@ -948,9 +1169,8 @@ const onPsEvent = debounce(async () => {
 }, 400);
 
 async function init() {
-  log("START", { ps: app.version, effects: FX.EFFECTS.length });
+  log("START", { ps: app.version, effects: FX.EFFECTS.length, combos: Object.keys(FX.COMBOS).length });
   buildUI();
-  syncUI();
   await initPreview();
   try { action.addNotificationListener(["select", "make", "delete", "set", "open", "close", "move", "transform", "editTextLayer"], onPsEvent); }
   catch (e) { log("listener failed", String(e)); }
@@ -962,6 +1182,7 @@ async function init() {
   }, 1500);
   await refreshPreviewSource();
   if (!thumbSig) { thumbSig = "sample"; requestThumbs("all"); }
+  sendPreviewParams();
   // developer hook: a file "run-selftest" in the plugin's data folder starts the self-test (then is deleted)
   setInterval(async () => {
     if (busy || selfTestRunning) return;

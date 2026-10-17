@@ -112,3 +112,21 @@ select { width: 100%; }
 .wheel img { position: absolute; left: 0; top: 0; width: 150px; height: 150px; }
 .wheel .dot { position: absolute; width: 10px; height: 10px; border-radius: 6px; border: 2px solid #fff; box-sizing: border-box; }
 .wheel-pop .ctl-label { width: 60px; }
+
+/* effect stack (always visible in the top area) */
+.stack-head { display: flex; flex-direction: row; align-items: center; justify-content: space-between; margin-top: 4px; }
+.stack-head .section-title { margin: 0; }
+#addFx.add-on { background-color: rgba(255, 255, 255, 0.18); border-radius: 4px; }
+.stack-list { max-height: 112px; overflow-y: auto; margin: 2px 0 2px; }
+.stack-empty { font-size: 10px; opacity: 0.5; padding: 4px 2px; }
+.stack-row { display: flex; flex-direction: row; align-items: center; height: 22px; padding: 0 4px; border-radius: 4px; margin-bottom: 1px; background-color: rgba(255, 255, 255, 0.04); }
+.stack-row.sel { background-color: rgba(255, 255, 255, 0.16); }
+.stack-row.off .nm { opacity: 0.4; text-decoration: line-through; }
+.stack-row .eye { width: 16px; font-size: 11px; cursor: pointer; opacity: 0.85; }
+.stack-row .nm { flex: 1; font-size: 11px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stack-row.sel .nm { font-weight: bold; }
+.stack-row .zone { font-size: 9px; opacity: 0.5; margin-right: 6px; cursor: pointer; }
+.stack-row .bt { width: 16px; text-align: center; font-size: 9px; cursor: pointer; opacity: 0.7; }
+.stack-row .bt.dis { opacity: 0.15; cursor: default; }
+.stack-row .rm { font-size: 10px; }
+.fx-tile.adding { border-color: rgba(255, 255, 255, 0.35); border-style: dashed; }

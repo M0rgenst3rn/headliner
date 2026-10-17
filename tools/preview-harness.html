@@ -37,24 +37,32 @@ const params = new URLSearchParams(location.search);
 const S = textSource(params.get("t") || "RETRO", 70);
 const frame = document.getElementById("wv");
 window.received = [];
-let state = { effect: params.get("fx") || "chromeExtrude", values: {} };
+let stack = params.get("combo") ? FX.comboStack(params.get("combo")) : FX.single(params.get("fx") || "chromeExtrude", {});
+let sel = stack.entries[0].uid;
 const post = (o) => frame.contentWindow.postMessage(JSON.stringify(o), "*");
-const sendParams = () => post({ cmd: "params", effect: state.effect, values: FX.values(state.effect, state.values), bg: 0 });
+const sendParams = () => post({ cmd: "params", stack, sel, bg: 0 });
 function onMsg(m) {
   window.received.push(m);
   if (m.type === "thumb") { const img = document.createElement("img"); img.src = m.url; img.title = m.key; document.getElementById("thumbs").appendChild(img); return; }
-  if (m.type === "drag") { Object.assign(state.values, m.values); }
+  if (m.type === "drag") { const e = stack.entries.find((x) => x.uid === m.uid); if (e) Object.assign(e.values, m.values); }
   log(JSON.stringify(m).slice(0, 300));
 }
 frame.addEventListener("load", () => {
   frame.contentWindow.uxpHost = { postMessage: (s) => { let m = s; try { m = JSON.parse(s); } catch (e) { /* */ } onMsg(m); } };
   post({ cmd: "source", w: S.w, h: S.h, alpha: b64(S.a), rgb: b64(S.rgb) });
   sendParams();
-  post({ cmd: "thumbs", tw: 200, th: 128, items: FX.EFFECTS.map((e) => ({ key: "fx:" + e.id, effect: e.id, values: {} })) });
+  post({ cmd: "thumbs", tw: 200, th: 128, items: FX.EFFECTS.map((e) => ({ key: "fx:" + e.id, effect: e.id, values: {} }))
+    .concat(Object.keys(FX.COMBOS).map((n) => ({ key: "combo:" + n, stack: FX.comboStack(n) }))) });
 });
+window.selectIndex = (i) => { sel = stack.entries[i].uid; sendParams(); };
+for (const n of Object.keys(FX.COMBOS)) {
+  const b = document.createElement("button"); b.textContent = "★ " + n;
+  b.onclick = () => { stack = FX.comboStack(n); sel = stack.entries[0].uid; sendParams(); };
+  document.getElementById("btns").appendChild(b);
+}
 for (const e of FX.EFFECTS) {
   const b = document.createElement("button"); b.textContent = e.name;
-  b.onclick = () => { state = { effect: e.id, values: {} }; sendParams(); };
+  b.onclick = () => { stack = FX.single(e.id, {}); sel = stack.entries[0].uid; sendParams(); };
   document.getElementById("btns").appendChild(b);
 }
 </script>

@@ -31,6 +31,11 @@
       <sp-button size="s" variant="secondary" id="remove">Remove</sp-button>
     </div>
     <div id="status" class="status"></div>
+    <div class="stack-head">
+      <span class="section-title">Stack</span>
+      <sp-action-button size="s" quiet id="addFx" title="Add another effect: click this, then an effect below">+ Add effect</sp-action-button>
+    </div>
+    <div id="stackList" class="stack-list"></div>
   </div>
 
   <div class="scroller">
@@ -40,9 +45,14 @@
       <div id="fxGrid" class="fx-grid"></div>
     </div>
 
-    <div class="section">
+    <div class="section" id="lookSection">
       <div class="section-title" id="lookTitle">Looks</div>
       <div id="lookGrid" class="fx-grid"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Combos</div>
+      <div id="comboGrid" class="fx-grid"></div>
     </div>
 
     <div class="section">
