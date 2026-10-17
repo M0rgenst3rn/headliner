@@ -192,6 +192,9 @@ Wünsche für neue Funktionen sind genauso willkommen.
 [MIT](LICENSE): Du darfst den Code frei ansehen, verändern, weitergeben und auch kommerziell nutzen.
 Einzige Bedingung: Der Lizenzhinweis bleibt in Kopien enthalten.
 
+Adobe und Photoshop sind Marken von Adobe Inc. Dieses Projekt ist unabhängig und steht in keiner
+Verbindung zu Adobe.
+
 ---
 
 <p align="center"><sub>MS Render<br>
