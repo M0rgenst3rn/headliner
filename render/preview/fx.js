@@ -328,13 +328,6 @@ const smooth = (a, b, v) => { if (b <= a) return v < a ? 0 : 1; const t = clamp0
 function hex(h) { const m = /^#?([0-9a-f]{6})$/i.exec(String(h || "")); const n = m ? parseInt(m[1], 16) : 0; return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
 
 // ---------------------------------------------------------------- shared helpers
-// Average colour of the source (for drips etc. when no colour is set)
-function sourceColor(ctx) {
-  if (!ctx.rgb) return [200, 40, 60];
-  let r = 0, g = 0, b = 0, n = 0;
-  for (let i = 0; i < ctx.alpha.length; i++) if (ctx.alpha[i] > 200) { r += ctx.rgb[i * 3]; g += ctx.rgb[i * 3 + 1]; b += ctx.rgb[i * 3 + 2]; n++; }
-  return n ? [r / n, g / n, b / n] : [200, 40, 60];
-}
 // Height map + lighting for bevelled surfaces. Returns normals per pixel via callback.
 function bevelNormal(ctx, B, profile, x, y, heightS) {
   const { w } = ctx;
@@ -768,119 +761,145 @@ def({
   },
 });
 
-// Finds points on bottom-facing edges, spaced along x (for drips & icicles)
-function bottomEdges(ctx, spacing, seed, chance) {
-  const { w, h } = ctx, al = ctx.alpha, pts = [];
-  for (let x = 0; x < w; x += Math.max(1, Math.round(spacing))) {
-    for (let y = 1; y < h - 1; y++) {
-      if (al[y * w + x] >= 128 && al[(y + 1) * w + x] < 128) {
-        if (rnd(x, y, seed) < chance) pts.push([x + (rnd(y, x, seed + 1) - 0.5) * spacing * 0.6, y]);
-      }
-    }
-  }
-  return pts;
+// bilinear sample of a float field, "far" outside the image
+function sampleF(f, w, h, x, y, far) {
+  if (x < 0 || y < 0 || x > w - 1 || y > h - 1) return far;
+  const xi = Math.min(w - 2, Math.floor(x)), yi = Math.min(h - 2, Math.floor(y)), fx = x - xi, fy = y - yi, i = yi * w + xi;
+  return (f[i] * (1 - fx) + f[i + 1] * fx) * (1 - fy) + (f[i + w] * (1 - fx) + f[i + w + 1] * fx) * fy;
 }
-function capsuleDist(px, py, x, y0, y1) { const cy = Math.max(y0, Math.min(y1, py)); return Math.hypot(px - x, py - cy); }
+// straight-alpha "over" into RGBA buffer
+function overPx(out, i, c, a) {
+  if (a <= 0) return;
+  const A0 = out[i * 4 + 3] / 255, A = a + A0 * (1 - a);
+  for (let k = 0; k < 3; k++) out[i * 4 + k] = (c[k] * a + out[i * 4 + k] * A0 * (1 - a)) / A;
+  out[i * 4 + 3] = A * 255;
+}
 
-// 11) Drip – paint drips running down
+// 11) Retro Stack – offset outline copies behind the text (70s / 80s shirt look)
+const PALETTES = {
+  sunset: ["#ffd25a", "#f8931f", "#e8452c", "#a1265d", "#3a1748"], ocean: ["#ffffff", "#6fd3ff", "#2b86e0", "#1c3f94", "#0b1736"],
+  candy: ["#ffffff", "#ff7ac8", "#a05cff", "#3cd3ff", "#1d1433"], mono: ["#ffffff", "#c4c4c4", "#808080", "#404040", "#101010"],
+  comic: ["#ffffff", "#ffe14a", "#ff3b3b", "#2b6cff", "#111111"], miami: ["#ffffff", "#ff6ec7", "#00d4c8", "#7a3cff", "#140b2a"],
+};
 def({
-  id: "drip", name: "Drip", mode: "above",
-  defaults: { color: "", length: 45, amount: 55, width: 5, gloss: 60, seed: 5 },
+  id: "retroStack", name: "Retro Stack", mode: "behind", drag: "dir",
+  defaults: { palette: "sunset", copies: 4, outline: 4.5, distance: 7, angle: 45, gap: 0.9 },
   controls: [
-    { key: "color", label: "Colour (empty = text)", type: "color" },
-    { key: "length", label: "Length", type: "slider", min: 5, max: 150, step: 1, unit: "%" },
-    { key: "amount", label: "Amount", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
-    { key: "width", label: "Width", type: "slider", min: 1, max: 15, step: 0.5, unit: "%" },
-    { key: "gloss", label: "Gloss", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
-    { key: "seed", label: "Seed", type: "slider", min: 0, max: 999, step: 1, unit: "" },
+    { key: "palette", label: "Colours", type: "select", options: [{ id: "sunset", name: "Sunset" }, { id: "ocean", name: "Ocean" }, { id: "candy", name: "Candy" }, { id: "miami", name: "Miami" }, { id: "comic", name: "Comic" }, { id: "mono", name: "Mono" }] },
+    { key: "copies", label: "Copies", type: "slider", min: 1, max: 5, step: 1, unit: "" },
+    { key: "outline", label: "Outline", type: "slider", min: 0, max: 12, step: 0.25, unit: "%" },
+    { key: "distance", label: "Offset", type: "slider", min: 0.5, max: 15, step: 0.25, unit: "%" },
+    { key: "angle", label: "Direction", type: "slider", min: 0, max: 360, step: 1, unit: "°" },
+    { key: "gap", label: "Separator", type: "slider", min: 0, max: 3, step: 0.1, unit: "%" },
   ],
-  presets: { "Wet Paint": {}, "Slime": { color: "#5dff3a", length: 70, width: 7 }, "Blood": { color: "#9a0010", length: 90, amount: 70, width: 3.5 } },
-  extent: (v, box) => ({ l: 4, t: 4, r: 4, b: v.length / 100 * box.h * 1.15 + v.width / 100 * box.h + 6 }),
+  presets: { "Sunset": {}, "Miami": { palette: "miami", copies: 3, distance: 9 }, "Comic": { palette: "comic", copies: 2, outline: 5, distance: 9, gap: 1.2 }, "Deep Stack": { palette: "ocean", copies: 5, distance: 5, outline: 3 } },
+  dragApply: (v, dx, dy, box) => ({ angle: Math.round((Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360), distance: Math.round(Math.max(0.5, Math.min(15, Math.hypot(dx, dy) / box.h * 100 / Math.max(1, v.copies))) * 4) / 4 }),
+  extent: (v, box) => {
+    const H = box.h, ring = (v.outline + v.gap) / 100 * H + 3, len = v.distance / 100 * H * v.copies, a = v.angle * Math.PI / 180;
+    const dx = Math.cos(a) * len, dy = Math.sin(a) * len;
+    return { l: ring + Math.max(0, -dx), t: ring + Math.max(0, -dy), r: ring + Math.max(0, dx), b: ring + Math.max(0, dy) };
+  },
   render(ctx, v) {
-    const { w, h } = ctx, N = w * h, H = ctx.box.h, s = v.seed | 0;
-    const W = Math.max(1.5, v.width / 100 * H), Lmax = v.length / 100 * H;
-    const pts = bottomEdges(ctx, W * 1.6, s, v.amount / 100);
-    const m = new Float32Array(N), prof = new Float32Array(N);
-    for (const [x, y] of pts) {
-      const L = Lmax * (0.25 + 0.75 * Math.pow(rnd(Math.round(x), Math.round(y), s + 9), 0.7));
-      const r = W * (0.4 + 0.3 * rnd(Math.round(y), Math.round(x), s + 4)), bulb = r * 1.35;
-      const x0 = Math.max(0, Math.floor(x - bulb - 2)), x1 = Math.min(w - 1, Math.ceil(x + bulb + 2));
-      const y0 = Math.max(0, Math.floor(y - r)), y1 = Math.min(h - 1, Math.ceil(y + L + bulb + 2));
-      for (let py = y0; py <= y1; py++) for (let px = x0; px <= x1; px++) {
-        const t = clamp01((py - y) / Math.max(1, L));
-        const rr = r * (1 - 0.35 * Math.sin(t * Math.PI));                 // thinner in the middle
-        const dStem = capsuleDist(px, py, x, y - r, y + L) - rr;
-        const dBulb = Math.hypot(px - x, py - (y + L)) - bulb;
-        const d = Math.min(dStem, dBulb);
-        const a = clamp01(0.5 - d);
-        const i = py * w + px;
-        if (a > m[i]) { m[i] = a; prof[i] = clamp01(1 - Math.abs(px - x) / Math.max(1, d < 0 ? (dBulb < dStem ? bulb : rr) : rr)); }
+    const { w, h, box } = ctx, N = w * h, H = box.h, dOut = ctx.F.dOut;
+    const W = Math.max(0.5, v.outline / 100 * H), G = v.gap / 100 * H, step = v.distance / 100 * H, a = v.angle * Math.PI / 180;
+    const ox = Math.cos(a) * step, oy = Math.sin(a) * step;
+    const pal = (PALETTES[v.palette] || PALETTES.sunset).map(hex), sep = pal[pal.length - 1];
+    const out = new Uint8ClampedArray(N * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      // back to front: the furthest copy first, the outline ring around the text last
+      for (let k = v.copies; k >= 0; k--) {
+        const D = sampleF(dOut, w, h, x - ox * k, y - oy * k, 1e6);
+        if (G > 0) overPx(out, i, sep, clamp01(W + G - D + 0.5));
+        overPx(out, i, pal[Math.min(k, pal.length - 2)], clamp01(W - D + 0.5));
       }
-    }
-    // join drips to the letters: fill where the source is
-    const col = v.color ? hex(v.color) : sourceColor(ctx), out = new Uint8ClampedArray(N * 4), g = v.gloss / 100;
-    for (let i = 0; i < N; i++) {
-      if (m[i] <= 0) continue;
-      const x = i % w;
-      const hi = Math.pow(prof[i], 6) * g * 0.8 * smooth(-0.6, 0.2, -(x % 1));
-      const sh = 0.75 + 0.35 * prof[i];
-      out[i * 4] = Math.min(255, col[0] * sh + 255 * hi); out[i * 4 + 1] = Math.min(255, col[1] * sh + 255 * hi); out[i * 4 + 2] = Math.min(255, col[2] * sh + 255 * hi);
-      out[i * 4 + 3] = m[i] * 255;
     }
     return out;
   },
 });
 
-// 12) Icicles – ice hanging from bottom edges
+// 12) Halftone – the text as a fading dot / line screen (no soft transparency: great for DTF prints)
 def({
-  id: "icicles", name: "Icicles", mode: "above",
-  defaults: { length: 40, amount: 65, width: 6, frost: 60, seed: 9 },
+  id: "halftone", name: "Halftone", mode: "replace",
+  defaults: { color: "", shape: "dot", cell: 5, angle: 45, direction: "down", start: 15, end: 100, min: 0 },
   controls: [
-    { key: "length", label: "Length", type: "slider", min: 5, max: 120, step: 1, unit: "%" },
-    { key: "amount", label: "Amount", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
-    { key: "width", label: "Width", type: "slider", min: 1, max: 15, step: 0.5, unit: "%" },
-    { key: "frost", label: "Frost on top", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
-    { key: "seed", label: "Seed", type: "slider", min: 0, max: 999, step: 1, unit: "" },
+    { key: "color", label: "Colour (empty = text)", type: "color" },
+    { key: "shape", label: "Shape", type: "select", options: [{ id: "dot", name: "Dots" }, { id: "line", name: "Lines" }, { id: "square", name: "Squares" }] },
+    { key: "direction", label: "Fade", type: "select", options: [{ id: "down", name: "Fade down" }, { id: "up", name: "Fade up" }, { id: "right", name: "Fade right" }, { id: "left", name: "Fade left" }, { id: "center", name: "Fade outwards" }, { id: "none", name: "No fade" }] },
+    { key: "cell", label: "Dot size", type: "slider", min: 1.5, max: 20, step: 0.25, unit: "%" },
+    { key: "angle", label: "Screen angle", type: "slider", min: 0, max: 90, step: 1, unit: "°" },
+    { key: "start", label: "Fade start", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "end", label: "Fade end", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "min", label: "Smallest dots", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
   ],
-  presets: { "Winter": {}, "Long Ice": { length: 80, amount: 80 }, "Light Frost": { length: 20, frost: 90 } },
-  extent: (v, box) => ({ l: 4, t: 4, r: 4, b: v.length / 100 * box.h * 1.1 + 6 }),
+  presets: { "Fade Down": {}, "Fade Up": { direction: "up" }, "Comic Dots": { direction: "none", min: 62, cell: 3.5 }, "Speed Lines": { shape: "line", direction: "right", angle: 0, cell: 4 } },
+  extent: () => ({ l: 3, t: 3, r: 3, b: 3 }),
   render(ctx, v) {
-    const { w, h } = ctx, N = w * h, H = ctx.box.h, s = v.seed | 0, W = Math.max(2, v.width / 100 * H), Lmax = v.length / 100 * H;
-    const pts = bottomEdges(ctx, W * 1.1, s, v.amount / 100);
-    const m = new Float32Array(N), sh = new Float32Array(N);
-    for (const [x, y] of pts) {
-      const L = Lmax * (0.2 + 0.8 * Math.pow(rnd(Math.round(x), Math.round(y), s + 7), 1.3));
-      const half = W * (0.35 + 0.25 * rnd(Math.round(y), Math.round(x), s + 2));
-      for (let py = Math.max(0, Math.floor(y - 2)); py <= Math.min(h - 1, Math.ceil(y + L)); py++) {
-        const t = clamp01((py - y) / Math.max(1, L)), hw = half * Math.pow(1 - t, 1.2);
-        for (let px = Math.max(0, Math.floor(x - half - 1)); px <= Math.min(w - 1, Math.ceil(x + half + 1)); px++) {
-          const a = clamp01(hw - Math.abs(px - x) + 0.5);
-          const i = py * w + px;
-          if (a > m[i]) { m[i] = a; sh[i] = (px - x) / Math.max(0.5, hw); }
-        }
-      }
-    }
-    // frost: a thin icy rim along top-facing edges of the letters
-    const out = new Uint8ClampedArray(N * 4), dIn = ctx.F.dIn, al = ctx.alpha, fr = v.frost / 100;
-    for (let y = 1; y < h; y++) for (let x = 0; x < w; x++) {
+    const { w, h, box, alpha } = ctx, N = w * h, H = box.h;
+    const c = Math.max(2, v.cell / 100 * H), a = v.angle * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+    const fixed = v.color ? hex(v.color) : null, out = new Uint8ClampedArray(N * 4);
+    const cx = box.x0 + box.w / 2, cy = box.y0 + H / 2, rMax = Math.hypot(box.w / 2, H / 2);
+    const s0 = v.start / 100, s1 = Math.max(s0 + 0.01, v.end / 100), mn = v.min / 100;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x;
-      let a = m[i], r = 200, g = 232, b = 255;
-      if (a > 0) {
-        const l = 0.75 + 0.25 * -sh[i];
-        r = Math.min(255, 175 * l + 60); g = Math.min(255, 215 * l + 40); b = 255;
-        if (sh[i] < -0.3 && sh[i] > -0.6) { r = g = b = 255; }
-        a *= 0.92;
+      if (!alpha[i]) continue;
+      let t;
+      switch (v.direction) {
+        case "up": t = 1 - (y - box.y0) / H; break;
+        case "right": t = (x - box.x0) / box.w; break;
+        case "left": t = 1 - (x - box.x0) / box.w; break;
+        case "center": t = Math.hypot(x - cx, y - cy) / rMax; break;
+        case "none": t = 1; break;
+        default: t = (y - box.y0) / H;
       }
-      if (fr > 0 && al[i] >= 128) {
-        // pixel near a top edge?
-        let top = false;
-        for (let k = 1; k <= Math.max(2, H * 0.03); k++) if (y - k >= 0 && al[(y - k) * w + x] < 128) { top = true; break; }
-        if (top && dIn[i] < H * 0.035) {
-          const fa = fr * (0.55 + 0.45 * fbm(x / (H * 0.05), y / (H * 0.05), 3, s));
-          if (fa > a) { a = fa; r = 235; g = 248; b = 255; }
-        }
-      }
-      if (a > 0) { out[i * 4] = r; out[i * 4 + 1] = g; out[i * 4 + 2] = b; out[i * 4 + 3] = a * 255; }
+      const f = v.direction === "none" ? 1 : clamp01((t - s0) / (s1 - s0));
+      const size = 1 + (mn - 1) * f;                       // 1 = solid, mn = smallest at the faded end
+      const u = (x - box.x0) * ca + (y - box.y0) * sa, q = -(x - box.x0) * sa + (y - box.y0) * ca;
+      const lx = (u / c - Math.floor(u / c) - 0.5) * c, ly = (q / c - Math.floor(q / c) - 0.5) * c;
+      let cov;
+      if (v.shape === "line") cov = clamp01(size * c * 0.5 - Math.abs(ly) + 0.5);
+      else if (v.shape === "square") cov = clamp01(size * c * 0.5 - Math.max(Math.abs(lx), Math.abs(ly)) + 0.5);
+      else cov = clamp01(size * c * 0.71 - Math.hypot(lx, ly) + 0.5);
+      if (size >= 0.999) cov = 1;
+      const A = cov * alpha[i] / 255;
+      if (A <= 0) continue;
+      const col = fixed || (ctx.rgb ? [ctx.rgb[i * 3], ctx.rgb[i * 3 + 1], ctx.rgb[i * 3 + 2]] : [20, 20, 20]);
+      out[i * 4] = col[0]; out[i * 4 + 1] = col[1]; out[i * 4 + 2] = col[2]; out[i * 4 + 3] = A * 255;
+    }
+    return out;
+  },
+});
+
+// 13) Sticker – die-cut border around the whole word, thin edge, soft shadow
+def({
+  id: "sticker", name: "Sticker", mode: "behind",
+  defaults: { color: "#ffffff", width: 9, fill: 12, edge: 0.8, edgeColor: "#1c1c1c", shadow: 45, shadowY: 2.5 },
+  controls: [
+    { key: "color", label: "Border colour", type: "color" },
+    { key: "width", label: "Border width", type: "slider", min: 1, max: 40, step: 0.5, unit: "%" },
+    { key: "fill", label: "Fill gaps", type: "slider", min: 0, max: 40, step: 0.5, unit: "%" },
+    { key: "edge", label: "Edge line", type: "slider", min: 0, max: 5, step: 0.1, unit: "%" },
+    { key: "edgeColor", label: "Edge colour", type: "color" },
+    { key: "shadow", label: "Shadow", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "shadowY", label: "Shadow offset", type: "slider", min: 0, max: 10, step: 0.25, unit: "%" },
+  ],
+  presets: { "White Sticker": {}, "Black Patch": { color: "#141414", edgeColor: "#ffffff", edge: 0.6 }, "Thick Bubble": { width: 18, fill: 25, edge: 1.5 }, "Yellow Tape": { color: "#ffd84a", width: 7, fill: 6, shadow: 30 } },
+  extent: (v, box) => { const m = (v.width + v.edge + v.shadowY) / 100 * box.h * 1.2 + box.h * 0.06 + 6; return { l: m, t: m, r: m, b: m }; },
+  render(ctx, v) {
+    const { w, h, box } = ctx, N = w * h, H = box.h, dOut = ctx.F.dOut;
+    const W = v.width / 100 * H, C = v.fill / 100 * H, Ew = v.edge / 100 * H;
+    // closing (dilate by W+C, erode by C) gives one smooth outline around the whole word
+    const inside = E.edt(w, h, (i) => dOut[i] > W + C);
+    const cov = new Float32Array(N);
+    for (let i = 0; i < N; i++) cov[i] = clamp01(inside[i] - C + 0.5);
+    const dFin = Ew > 0 ? E.edt(w, h, (i) => cov[i] >= 0.5) : null;
+    const sh = v.shadow > 0 ? E.blur(cov, w, h, Math.max(1, H * 0.035)) : null;
+    const dy = Math.round(v.shadowY / 100 * H), col = hex(v.color), ec = hex(v.edgeColor), out = new Uint8ClampedArray(N * 4), black = [0, 0, 0];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (sh && y - dy >= 0) overPx(out, i, black, sh[(y - dy) * w + x] * v.shadow / 100 * 0.8);
+      if (dFin) overPx(out, i, ec, clamp01(Ew - dFin[i] + 0.5));
+      overPx(out, i, col, cov[i]);
     }
     return out;
   },
@@ -1435,7 +1454,7 @@ defMaterial("diamondPlate", "Diamond Plate",
   }, () => ({ metal: true, gloss: 40, spec: 0.5 }));
 
 // gallery order: group light effects together
-const ORDER = ["chromeExtrude", "inflate", "bevel", "glass", "brushedMetal", "diamondPlate", "rust", "wood", "marble", "stone", "shadow", "glow", "corona", "backlight", "lightning", "electrify", "star", "fire", "smoke", "motionTrail", "drip", "icicles", "snow", "waterDrops"];
+const ORDER = ["chromeExtrude", "inflate", "bevel", "glass", "halftone", "brushedMetal", "diamondPlate", "rust", "wood", "marble", "stone", "shadow", "glow", "corona", "backlight", "lightning", "electrify", "star", "fire", "smoke", "motionTrail", "retroStack", "sticker", "snow", "waterDrops"];
 EFFECTS.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 
 const BY_ID = {};
@@ -1556,8 +1575,11 @@ const COMBOS = {
   "Thunder Chrome": [C("lightning", { ay: -160, by: 10 }), C("chromeExtrude", {}), C("glow", { color: "#5aa8ff", size: 14, intensity: 70, core: 20 })],
   "Flame Biker": [C("chromeExtrude", { material: "gold", depth: 18 }), C("fire", { height: 90 })],
   "Neon Sign": [C("star", { count: 4, size: 18 }), C("bevel", { color: "#ff3fa4", width: 5, profile: "round" }), C("glow", { color: "#ff2bd6", size: 22, core: 60 })],
-  "Toxic Slime": [C("drip", { color: "#5dff3a", length: 70, width: 7 }), C("inflate", { color: "#4dff5c" }), C("glow", { color: "#7dff2b", size: 18, intensity: 60 })],
-  "Frozen": [C("snow", { thickness: 10, flakes: 25 }), C("icicles", { length: 45 }), C("glass", { tint: "#9fe2ff" }), C("glow", { color: "#bfefff", size: 12, intensity: 50, core: 10 })],
+  "Toxic Slime": [C("inflate", { color: "#4dff5c" }), C("sticker", { color: "#141414", width: 6, fill: 8, edge: 0.6, edgeColor: "#7dff2b" }), C("glow", { color: "#7dff2b", size: 18, intensity: 60 })],
+  "Frozen": [C("snow", { thickness: 10, flakes: 25 }), C("glass", { tint: "#9fe2ff" }), C("glow", { color: "#bfefff", size: 12, intensity: 50, core: 10 })],
+  "70s Groove": [C("inflate", { color: "#ffe6b0", puff: 45, gloss: 40, stroke: 0, shadowX: 0, shadowY: 0 }), C("retroStack", {})],
+  "Sticker Pop": [C("bevel", { color: "#ff3f8e", width: 5, profile: "round" }), C("sticker", {})],
+  "Comic Burst": [C("halftone", { color: "#ff2d55", direction: "none", min: 70, cell: 3 }), C("retroStack", { palette: "comic", copies: 2, outline: 5, distance: 9, gap: 1.2 })],
   "Hot Rod": [C("inflate", { color: "#ff5a1f", puff: 60 }), C("fire", { height: 70 }), C("shadow", { style: "drop", distance: 6, blur: 5, opacity: 55, color: "#000000" })],
   "Gold Sparkle": [C("star", { color: "#fff3c4", count: 8, size: 24 }), C("chromeExtrude", { material: "gold", depth: 12 }), C("shadow", { style: "long", angle: 45, distance: 25, color: "#2a1700", opacity: 70 })],
   "Eclipse": [C("bevel", { color: "#141414", width: 6 }), C("backlight", { color: "#ffffff", size: 70, length: 100, softness: 25 })],

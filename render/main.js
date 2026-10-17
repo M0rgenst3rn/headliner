@@ -16,7 +16,8 @@ const STORE_KEY = "msrender.state.v3";
 const GROUP_PREFIX = "MS Render · ";
 const HIST = "MS Render";
 const XMP_NS = "http://ms-render/1.0/";
-const RENDER_NAMES = new Set(FX.EFFECTS.map((e) => e.name));
+// render layers of removed effects (v0.2–0.6) are still recognised, so old groups stay intact and get replaced on update
+const RENDER_NAMES = new Set(FX.EFFECTS.map((e) => e.name).concat(["Drip", "Icicles"]));
 const THUMB = { tw: 200, th: 124 };
 const ZONE_LABEL = { above: "on top", base: "look", behind: "behind" };
 
@@ -625,6 +626,111 @@ async function removeRender() {
   setTargetUI(resolveTarget(doc));
 }
 
+// ---------------------------------------------------------------- export for print
+// Works on a duplicate of the document, so the original stays untouched:
+// keep the selected group (or all visible layers) → transparent background → trim → print size at 300 dpi
+// → optional hard edges (DTF printers turn soft transparency into ugly halftone fringes) → PNG.
+const EXPORT_DPI = 300;
+function exportName(doc, t) {
+  const n = t && t.group ? t.group.name.slice(GROUP_PREFIX.length) : t && t.source ? t.source.name : String(doc.title || "design").replace(/\.[a-z0-9]+$/i, "");
+  return (n.replace(/[^\w\- ]+/g, "").trim().slice(0, 60) || "design") + "-print";
+}
+function allLayers(container, out) { for (const l of container.layers || []) { out.push(l); if (l.layers) allLayers(l, out); } return out; }
+async function deleteLayerDeep(l) { if (l.layers) for (const k of Array.from(l.layers)) await deleteLayerDeep(k); await l.delete(); }
+async function exportPNG(opts) {
+  if (busy) return null;
+  const doc = app.activeDocument;
+  if (!doc) { setStatus("Open a document first.", true); return null; }
+  const t = resolveTarget(doc);
+  const scope = opts.scope;
+  const targetId = scope === "group" ? (t && t.group ? t.group.id : t && t.source ? t.source.id : null) : null;
+  if (scope === "group" && !targetId) { setStatus("Select an MS Render group (or a layer) to export – or choose “All visible layers”.", true); return null; }
+  const file = opts.file || await lfs.getFileForSaving(exportName(doc, t) + ".png", { types: ["png"] });
+  if (!file) return null;
+  busy = true;
+  setStatus("Exporting…");
+  const info = { softPct: 0, w: 0, h: 0, cm: null };
+  let err = null;
+  try {
+    await core.executeAsModal(async () => {
+      const dup = await doc.duplicate(exportName(doc, t));
+      app.activeDocument = dup;
+      try {
+        // 1) only what should be printed stays visible – never the background
+        const layers = allLayers(dup, []);
+        if (targetId) {
+          const target = layers.find((l) => l.id === targetId);
+          if (!target) throw new Error("The selected layer wasn't found in the copy.");
+          const keep = new Set([target.id]);
+          for (let p = target.parent; p; p = p.parent) keep.add(p.id);
+          for (const l of allLayers(target, [])) keep.add(l.id);
+          for (const l of layers) if (!keep.has(l.id) && l.visible && (!l.parent || keep.has(l.parent.id))) l.visible = false;
+        }
+        for (const l of layers) if (l.isBackgroundLayer) l.visible = false;
+        // 2) flatten what is visible into one transparent layer
+        const comp = await imaging.getPixels({ documentID: dup.id, colorSpace: "RGB", componentSize: 8 });
+        const cw = comp.imageData.width, ch = comp.imageData.height, cc = comp.imageData.components;
+        const raw = to8bit(await comp.imageData.getData({ chunky: true }), comp.imageData.componentSize || 8);
+        comp.imageData.dispose();
+        const rgba = new Uint8Array(cw * ch * 4);
+        let used = 0, soft = 0;
+        for (let i = 0; i < cw * ch; i++) {
+          rgba[i * 4] = raw[i * cc]; rgba[i * 4 + 1] = raw[i * cc + 1]; rgba[i * 4 + 2] = raw[i * cc + 2];
+          const a = cc >= 4 ? raw[i * cc + 3] : 255;
+          rgba[i * 4 + 3] = a;
+          if (a > 0) { used++; if (a < 250) soft++; }
+        }
+        if (!used) throw new Error("Nothing visible to export.");
+        info.softPct = Math.round(soft / used * 100);
+        await batchPlay([{ _obj: "make", _target: [{ _ref: "layer" }], using: { _obj: "layer", name: "MS Render Print" } }], {});
+        // Photoshop creates the layer next to the active one – possibly inside a group: move it to the top level
+        const printLayer = allLayers(dup, []).filter((l) => l.name === "MS Render Print" && !l.layers).sort((x, y) => y.id - x.id)[0];
+        if (printLayer.parent) await printLayer.move(dup.layers[0], constants.ElementPlacement.PLACEBEFORE);
+        const id = await imaging.createImageDataFromBuffer(fromBuf8(rgba, dup), { width: cw, height: ch, components: 4, chunky: true, colorSpace: "RGB", colorProfile: "sRGB IEC61966-2.1" });
+        try { await imaging.putPixels({ documentID: dup.id, layerID: printLayer.id, imageData: id, targetBounds: { left: 0, top: 0 } }); } finally { id.dispose(); }
+        for (const l of Array.from(dup.layers)) if (l.id !== printLayer.id) await deleteLayerDeep(l);
+        // 3) trim to the design, 4) print size
+        await batchPlay([{ _obj: "trim", trimBasedOn: { _enum: "trimBasedOn", _value: "transparency" }, top: true, bottom: true, left: true, right: true }], {});
+        const pw = Math.round(Number(dup.width)), ph = Math.round(Number(dup.height));
+        if (opts.widthCm > 0) {
+          const nw = Math.max(1, Math.round(opts.widthCm / 2.54 * EXPORT_DPI));
+          await dup.resizeImage(nw, Math.max(1, Math.round(ph * nw / pw)), EXPORT_DPI, constants.ResampleMethod.BICUBIC);
+        } else {
+          await dup.resizeImage(pw, ph, EXPORT_DPI, constants.ResampleMethod.NONE);
+        }
+        // 5) hard edges: every pixel fully opaque or fully transparent (after resizing – resampling softens again)
+        if (opts.hard) {
+          const L = dup.layers[0];
+          const got = await imaging.getPixels({ documentID: dup.id, layerID: L.id, colorSpace: "RGB", componentSize: 8 });
+          const gw = got.imageData.width, gh = got.imageData.height, gc = got.imageData.components, b = got.sourceBounds;
+          const d = to8bit(await got.imageData.getData({ chunky: true }), got.imageData.componentSize || 8);
+          got.imageData.dispose();
+          const o = new Uint8Array(gw * gh * 4);
+          for (let i = 0; i < gw * gh; i++) {
+            o[i * 4] = d[i * gc]; o[i * 4 + 1] = d[i * gc + 1]; o[i * 4 + 2] = d[i * gc + 2];
+            o[i * 4 + 3] = (gc >= 4 ? d[i * gc + 3] : 255) >= 128 ? 255 : 0;
+          }
+          const id2 = await imaging.createImageDataFromBuffer(fromBuf8(o, dup), { width: gw, height: gh, components: 4, chunky: true, colorSpace: "RGB", colorProfile: "sRGB IEC61966-2.1" });
+          try { await imaging.putPixels({ documentID: dup.id, layerID: L.id, imageData: id2, targetBounds: { left: b.left, top: b.top } }); } finally { id2.dispose(); }
+        }
+        info.w = Math.round(Number(dup.width)); info.h = Math.round(Number(dup.height));
+        info.cm = [info.w / EXPORT_DPI * 2.54, info.h / EXPORT_DPI * 2.54].map((v) => Math.round(v * 10) / 10);
+        await dup.saveAs.png(file, { compression: 6, interlaced: false }, true);
+      } finally {
+        await dup.closeWithoutSaving();
+        app.activeDocument = doc;
+      }
+    }, { commandName: HIST + " export" });
+  } catch (e) { err = e.message || String(e); }
+  busy = false;
+  ignoreEventsUntil = Date.now() + 800;
+  log("EXPORT", { scope, widthCm: opts.widthCm, hard: !!opts.hard, err, info });
+  if (err) { setStatus("Export failed: " + err, true); return null; }
+  const softNote = !opts.hard && info.softPct >= 5 ? ` ${info.softPct}% soft edge pixels (glow/shadow) – tick “Hard edges” for DTF.` : "";
+  setStatus(`Exported ${info.cm[0]} × ${info.cm[1]} cm at ${EXPORT_DPI} dpi (${info.w} × ${info.h} px).${softNote}`);
+  return info;
+}
+
 // ---------------------------------------------------------------- auto-update on text changes
 async function checkAutoUpdate() {
   if (busy || !$("autoUpdate").checked) return;
@@ -837,6 +943,10 @@ function buildUI() {
     syncUI(); changed(); setStatus(`${FX.BY_ID[e.effect].name} reset to defaults.`);
   });
   $("selfTest").addEventListener("click", runSelfTest);
+  $("exportBtn").addEventListener("click", () => {
+    const cm = parseFloat(String($("expWidth").value).replace(",", "."));
+    exportPNG({ scope: $("expScope").value, widthCm: isNaN(cm) ? 0 : cm, hard: $("expHard").checked });
+  });
   let auto = "1";
   try { auto = localStorage.getItem("msrender.auto") || "1"; } catch (e) { /* ignore */ }
   $("autoUpdate").checked = auto === "1";
@@ -1137,6 +1247,40 @@ async function runSelfTest() {
       const v = await verify({ stack: g1Stack });
       v.panel = stackLabel(state.stack);
       return v;
+    });
+    await check("Export for print: trimmed, 10 cm at 300 dpi, transparent, hard edges, original untouched", async () => {
+      // group 1 (Thunder Chrome) selected; export into the plugin's data folder
+      await core.executeAsModal(async () => { await selectLayer(g1.id); }, { commandName: HIST + " test select" });
+      const before = { id: doc.id, layers: allLayers(doc, []).length, w: Number(doc.width), h: Number(doc.height), hist: historyStateId(doc) };
+      const file = await (await lfs.getDataFolder()).createFile("export-test.png", { overwrite: true });
+      const info = await exportPNG({ file, scope: "group", widthCm: 10, hard: true });
+      const after = { id: app.activeDocument.id, layers: allLayers(doc, []).length, w: Number(doc.width), h: Number(doc.height), hist: historyStateId(doc) };
+      // PNG header: size, colour type (6 = RGBA), pHYs = 300 dpi (11811 px per metre)
+      const buf = new Uint8Array(await file.read({ format: require("uxp").storage.formats.binary }));
+      const dv = new DataView(buf.buffer), png = buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+      const width = dv.getUint32(16), height = dv.getUint32(20), colorType = buf[25];
+      let dpm = 0;
+      for (let o = 8; o < buf.length - 12;) {
+        const len = dv.getUint32(o), type = String.fromCharCode(buf[o + 4], buf[o + 5], buf[o + 6], buf[o + 7]);
+        if (type === "pHYs") { dpm = dv.getUint32(o + 8); break; }
+        if (type === "IDAT") break;
+        o += 12 + len;
+      }
+      // re-open the PNG: no soft pixels left, corners transparent
+      let soft = -1, corner = -1;
+      await core.executeAsModal(async () => {
+        const d2 = await app.open(file);
+        try {
+          const g = await imaging.getPixels({ documentID: d2.id, layerID: d2.layers[0].id, colorSpace: "RGB", componentSize: 8 });
+          const px = to8bit(await g.imageData.getData({ chunky: true }), g.imageData.componentSize || 8), c = g.imageData.components;
+          soft = 0; corner = c >= 4 ? px[3] : 255;
+          for (let i = 0; i < g.imageData.width * g.imageData.height; i++) { const a = c >= 4 ? px[i * c + 3] : 255; if (a > 0 && a < 255) soft++; }
+          g.imageData.dispose();
+        } finally { await d2.closeWithoutSaving(); app.activeDocument = doc; }
+      }, { commandName: HIST + " test export read" });
+      const ok = !!info && png && width === Math.round(10 / 2.54 * 300) && colorType === 6 && Math.abs(dpm - 11811) <= 2 && soft === 0 && corner === 0 &&
+        before.id === after.id && before.layers === after.layers && before.w === after.w && before.h === after.h && before.hist === after.hist;
+      return { ok, info, width, height, colorType, dpm, soft, corner, before, after };
     });
     await check("Live never adds an effect to a plain layer", async () => {
       await core.executeAsModal(async () => { await selectLayer(doc.backgroundLayer.id); await makeText("PLAIN", 15); }, { commandName: HIST + " test plain text" });

@@ -130,3 +130,4 @@ select { width: 100%; }
 .stack-row .bt.dis { opacity: 0.15; cursor: default; }
 .stack-row .rm { font-size: 10px; }
 .fx-tile.adding { border-color: rgba(255, 255, 255, 0.35); border-style: dashed; }
+.ctl-num.wide { width: 60px; text-align: left; }

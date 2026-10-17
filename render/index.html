@@ -67,6 +67,15 @@
     </div>
 
     <div class="section">
+      <div class="section-title">Export for print</div>
+      <div class="ctl"><span class="ctl-label">What</span><select id="expScope" class="grow"><option value="group">Selected group / layer</option><option value="all">All visible layers</option></select></div>
+      <div class="ctl"><span class="ctl-label">Print width</span><input id="expWidth" class="ctl-num wide" type="text" placeholder="as is"><span class="ctl-unit">cm</span></div>
+      <label class="check" title="DTF printers turn semi-transparent pixels (glows, soft shadows) into halftone fringes"><input type="checkbox" id="expHard"> Hard edges (DTF)</label>
+      <div class="row"><sp-button size="s" variant="primary" id="exportBtn">Export PNG…</sp-button></div>
+      <div class="hint">Transparent background, trimmed to the design, 300 dpi. Works on a copy – your document stays untouched.</div>
+    </div>
+
+    <div class="section">
       <div class="section-title">Tools</div>
       <div class="row">
         <sp-action-button size="s" quiet id="resetAll">Reset effect</sp-action-button>

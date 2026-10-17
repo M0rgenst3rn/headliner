@@ -362,7 +362,7 @@ function drawGuides() {
     x.fillText("A", A.x + 9 * lw, A.y - 7 * lw); x.fillText("B", B.x + 9 * lw, B.y - 7 * lw);
   } else {
     const cx = b.x0 + b.w / 2, cy = b.y0 + b.h / 2, a = v.angle * Math.PI / 180;
-    const len = (v.distance !== undefined ? v.distance : v.length) / 100 * b.h;
+    const len = (v.distance !== undefined ? v.distance * (v.copies || 1) : v.length) / 100 * b.h;   // Retro Stack: all copies
     const ex = cx + Math.cos(a) * len, ey = cy + Math.sin(a) * len;
     x.strokeStyle = "rgba(255,255,255,0.9)"; x.lineWidth = 2 * lw;
     x.beginPath(); x.moveTo(cx, cy); x.lineTo(ex, ey); x.stroke();
@@ -425,7 +425,7 @@ function scaledSource(s, tw, th, effect, zoom) {
   const k = Math.min(tw * 0.74 / Math.max(1, b.w), th * 0.42 / Math.max(1, b.h)) * (zoom || 1);
   const cv = document.createElement("canvas"); cv.width = tw; cv.height = th;
   const x = cv.getContext("2d");
-  const up = effect === "lightning" ? 0.1 : effect === "fire" || effect === "smoke" ? 0.17 : effect === "drip" || effect === "icicles" ? -0.1 : 0;
+  const up = effect === "lightning" ? 0.1 : effect === "fire" || effect === "smoke" ? 0.17 : 0;
   const cx = tw / 2 - (b.x0 + b.w / 2) * k, cy = th * (0.5 + up) - (b.y0 + b.h / 2) * k;
   x.imageSmoothingQuality = "high";
   x.drawImage(toCanvas(s), cx, cy, s.w * k, s.h * k);
@@ -454,7 +454,7 @@ function thumbStep() {
     if (!st) { const fx = FX.BY_ID[it.effect]; st = FX.single(it.effect, Object.assign({}, fx.thumb || {}, it.values)); }
     st = FX.normStack(st);
     const ids = st.entries.map((e) => e.effect);
-    const look = ids.includes("lightning") ? "lightning" : ids.includes("fire") || ids.includes("smoke") ? "fire" : ids.includes("drip") || ids.includes("icicles") ? "drip" : ids[0];
+    const look = ids.includes("lightning") ? "lightning" : ids.includes("fire") || ids.includes("smoke") ? "fire" : ids[0];
     const s = scaledSource(base, m.tw, m.th, look, it.stack ? 0.85 : 1);
     if (it.stack) for (const e of st.entries) { const t = FX.BY_ID[e.effect].thumb; if (t) Object.assign(e.values, t); }
     const res = FX.renderStack(s, st);
