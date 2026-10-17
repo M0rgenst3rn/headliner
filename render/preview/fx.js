@@ -515,10 +515,8 @@ def({
         const body = (1 - v.clarity / 100) * 0.6 + 0.12 + edge * 0.55;
         const hv = [L[0] / ln, L[1] / ln, L[2] / ln + 1], hl = Math.hypot(...hv);
         const spec = Math.pow(Math.max(0, (nx * hv[0] + ny * hv[1] + nz * hv[2]) / hl), 70) * v.highlight / 100 * 1.8;
-        // diagonal reflection streak
-        const streak = smooth(0.0, 0.04, Math.abs(((x - ctx.box.x0) - (y - ctx.box.y0) * 0.8) / H - 0.35) < 0.06 ? 0.05 : 0) * 0;
         over(tint[0], tint[1], tint[2], Math.min(1, body) * a);
-        const hiA = Math.min(1, spec + streak) * a;
+        const hiA = Math.min(1, spec) * a;
         if (hiA > 0) over(255, 255, 255, hiA);
       }
       out[i * 4] = A > 0 ? r / A : 0; out[i * 4 + 1] = A > 0 ? g / A : 0; out[i * 4 + 2] = A > 0 ? b / A : 0; out[i * 4 + 3] = A * 255;
@@ -1279,8 +1277,165 @@ def({
   },
 });
 
+// ---------------------------------------------------------------- Materials – textures as the fill of the text
+// Shared renderer: a procedural texture (colour + relief height) in text-relative coordinates, lit together
+// with an edge bevel, then outline + hard shadow like the other looks. tex(u, v, seed, values) returns
+// [r, g, b, height] with u/v in units of the texture scale.
+function renderMaterial(ctx, v, tex, opt) {
+  const { w, h, box } = ctx, N = w * h, H = box.h, al = ctx.alpha, s = v.seed | 0;
+  const S = Math.max(4, v.scale / 100 * H), B = v.bevel > 0 ? Math.max(1.5, v.bevel / 100 * H) : 0;
+  const hs = B ? heightMap(ctx, B, opt.profile || "round") : null;
+  // texture over the shape's bounding area (+1 px for gradients)
+  const col = new Float32Array(N * 3), th = new Float32Array(N);
+  const x0 = Math.max(0, box.x0 - 2), x1 = Math.min(w - 1, box.x0 + box.w + 2), y0 = Math.max(0, box.y0 - 2), y1 = Math.min(h - 1, box.y0 + H + 2);
+  const rgbh = [0, 0, 0, 0];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const i = y * w + x;
+    if (!al[i] && !(x > 0 && al[i - 1]) && !(x < w - 1 && al[i + 1]) && !(y > 0 && al[i - w]) && !(y < h - 1 && al[i + w])) continue;
+    tex((x - box.x0) / S, (y - box.y0) / S, s, v, rgbh);
+    col[i * 3] = rgbh[0]; col[i * 3 + 1] = rgbh[1]; col[i * 3 + 2] = rgbh[2]; th[i] = rgbh[3];
+  }
+  const a0 = (v.light - 180) * Math.PI / 180, L = [Math.cos(a0) * 0.62, Math.sin(a0) * 0.62, 0.5], ln = Math.hypot(...L);
+  const Lx = L[0] / ln, Ly = L[1] / ln, Lz = L[2] / ln, hl = Math.hypot(Lx, Ly, Lz + 1);
+  const Hx = Lx / hl, Hy = Ly / hl, Hz = (Lz + 1) / hl;
+  const relief = v.relief / 100 * S * 0.18, gloss = opt.gloss || 20, specK = opt.spec || 0.2;
+  const R = new Float32Array(N), G = new Float32Array(N), Bc = new Float32Array(N), cov = new Float32Array(N);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x, a = al[i] / 255;
+    if (!a) continue;
+    let gx = (th[i + 1] - th[i - 1]) * 0.5 * relief, gy = (th[i + w] - th[i - w]) * 0.5 * relief;
+    if (hs) { gx += (hs[i + 1] - hs[i - 1]) * B * 0.5; gy += (hs[i + w] - hs[i - w]) * B * 0.5; }
+    const nl = Math.hypot(gx, gy, 1), nx = -gx / nl, ny = -gy / nl, nz = 1 / nl;
+    const lam = Math.max(0, nx * Lx + ny * Ly + nz * Lz);
+    const spec = Math.pow(Math.max(0, nx * Hx + ny * Hy + nz * Hz), gloss) * specK * 255;
+    // metals get a broad sheen across the letter height (like a reflection of the room)
+    const sheen = opt.metal ? 0.82 + 0.3 * Math.cos(((y - box.y0) / H) * Math.PI * 1.3 + 0.5) : 1;
+    const sh = (0.42 + 0.72 * lam) * sheen;
+    R[i] = Math.min(255, col[i * 3] * sh + spec); G[i] = Math.min(255, col[i * 3 + 1] * sh + spec); Bc[i] = Math.min(255, col[i * 3 + 2] * sh + spec); cov[i] = a;
+  }
+  return finishWithOutline(ctx, R, G, Bc, cov, v.stroke, v.shadowX, v.shadowY);
+}
+const mix3 = (a, b, t, out) => { out[0] = a[0] + (b[0] - a[0]) * t; out[1] = a[1] + (b[1] - a[1]) * t; out[2] = a[2] + (b[2] - a[2]) * t; return out; };
+const MAT_COMMON = (extra, def) => ({
+  controls: extra.concat([
+    { key: "scale", label: "Texture scale", type: "slider", min: 5, max: 300, step: 1, unit: "%" },
+    { key: "relief", label: "Relief", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "bevel", label: "Bevel", type: "slider", min: 0, max: 25, step: 0.5, unit: "%" },
+    { key: "light", label: "Light angle", type: "slider", min: 0, max: 360, step: 5, unit: "°" },
+    { key: "seed", label: "Seed", type: "slider", min: 0, max: 999, step: 1, unit: "" },
+  ], OUTLINE_CONTROLS),
+  defaults: Object.assign({ scale: 60, relief: 50, bevel: 6, light: 135, seed: 1, stroke: 0, shadowX: 1, shadowY: 1.5 }, def),
+});
+const matExtent = (v, box) => { const m = outlineExt(v, box.h); return { l: m, t: m, r: m, b: m }; };
+function defMaterial(id, name, extra, def, presets, tex, opt) {
+  const c = MAT_COMMON(extra, def);
+  def_({ id, name, mode: "replace", material: true, defaults: c.defaults, controls: c.controls, presets, extent: matExtent, render: (ctx, v) => renderMaterial(ctx, v, tex, opt(v)) });
+}
+const def_ = def;
+
+// Brushed metal: fine streaks along x, broad sheen
+defMaterial("brushedMetal", "Brushed Metal",
+  [{ key: "color", label: "Metal colour", type: "color" }],
+  { color: "#c9ced6", scale: 80, relief: 25, bevel: 7 },
+  { "Steel": {}, "Brushed Gold": { color: "#e2b65a" }, "Copper": { color: "#d0815a" }, "Dark Titanium": { color: "#6f7480", bevel: 10 } },
+  (u, v, s, p, o) => {
+    const c = hex(p.color);
+    const st = perlin(u * 0.4, v * 45, s) * 0.55 + perlin(u * 1.3, v * 110, s + 3) * 0.3 + fbm(u * 0.8, v * 6, 2, s + 7) * 0.25;
+    const k = 0.86 + 0.28 * st;
+    o[0] = c[0] * k; o[1] = c[1] * k; o[2] = c[2] * k; o[3] = st * 0.3;
+  }, () => ({ metal: true, gloss: 45, spec: 0.55 }));
+
+// Rust: corroded metal, rust coverage adjustable
+defMaterial("rust", "Rust",
+  [{ key: "amount", label: "Rust amount", type: "slider", min: 0, max: 100, step: 1, unit: "%" }],
+  { amount: 65, scale: 70, relief: 60, bevel: 5 },
+  { "Old Iron": {}, "Light Patina": { amount: 30 }, "Shipwreck": { amount: 95, relief: 85 } },
+  (u, v, s, p, o) => {
+    const n = fbm(u * 1.1, v * 1.1, 5, s), m = fbm(u * 4.5, v * 4.5, 3, s + 5), f = perlin(u * 14, v * 14, s + 9);
+    const thr = 0.55 - p.amount / 100 * 1.25;
+    const r = smooth(thr - 0.08, thr + 0.12, n + 0.35 * m);
+    const metal = [92 + 20 * m, 98 + 20 * m, 106 + 22 * m], tmp = [0, 0, 0];
+    E.rampColor([[0, 0x2e1408], [0.35, 0x6e2c10], [0.6, 0xa9501c], [0.85, 0xd08436], [1, 0xe0a860]], 0.5 + 0.55 * m + 0.15 * f, tmp);
+    mix3(metal, tmp, r, o);
+    o[3] = r * (0.45 + 0.4 * m + 0.15 * f) - (1 - r) * 0.1;
+  }, () => ({ metal: false, gloss: 12, spec: 0.12 }));
+
+// Wood: warped growth rings + fine grain
+const WOODS = { oak: [[0xa86f3a, 0xd9a86c]], walnut: [[0x3f2414, 0x7c4c2b]], pine: [[0xc08446, 0xeccb92]], ebony: [[0x16100c, 0x3a2a20]] };
+defMaterial("wood", "Wood",
+  [{ key: "kind", label: "Wood", type: "select", options: [{ id: "oak", name: "Oak" }, { id: "walnut", name: "Walnut" }, { id: "pine", name: "Pine" }, { id: "ebony", name: "Ebony" }] },
+   { key: "rings", label: "Rings", type: "slider", min: 1, max: 30, step: 1, unit: "" }],
+  { kind: "oak", rings: 9, scale: 120, relief: 30, bevel: 6 },
+  { "Oak": {}, "Walnut": { kind: "walnut" }, "Pine": { kind: "pine", rings: 6 }, "Ebony": { kind: "ebony", rings: 14 } },
+  (u, v, s, p, o) => {
+    const [dark, light] = (WOODS[p.kind] || WOODS.oak)[0].map((c) => [(c >> 16) & 255, (c >> 8) & 255, c & 255]);
+    const warp = fbm(u * 0.3, v * 0.7, 4, s) * 2.6;
+    const g = (v * p.rings * 0.3 + warp + perlin(u * 0.08, v * 0.2, s + 4) * 1.5);
+    const ring = g - Math.floor(g);
+    const band = smooth(0, 0.18, ring) * (1 - smooth(0.55, 1, ring));
+    const grain = perlin(u * 1.5, v * 50, s + 2) * 0.5 + perlin(u * 4, v * 120, s + 6) * 0.25;
+    mix3(dark, light, clamp01(band * 0.8 + 0.12 + grain * 0.12), o);
+    o[3] = band * 0.25 + grain * 0.15;
+  }, () => ({ metal: false, gloss: 14, spec: 0.12 }));
+
+// Marble: turbulent veins on a polished base
+const MARBLES = { white: [[239, 236, 230], [96, 96, 104]], black: [[24, 24, 28], [214, 178, 104]], green: [[24, 74, 56], [228, 238, 230]], pink: [[236, 200, 196], [150, 90, 96]] };
+defMaterial("marble", "Marble",
+  [{ key: "kind", label: "Marble", type: "select", options: [{ id: "white", name: "White (Carrara)" }, { id: "black", name: "Black & gold" }, { id: "green", name: "Green" }, { id: "pink", name: "Rose" }] },
+   { key: "veins", label: "Veins", type: "slider", min: 0, max: 100, step: 1, unit: "%" }],
+  { kind: "white", veins: 60, scale: 110, relief: 8, bevel: 5 },
+  { "Carrara": {}, "Black & Gold": { kind: "black" }, "Verde": { kind: "green" }, "Rose": { kind: "pink", veins: 40 } },
+  (u, v, s, p, o) => {
+    const [base, vein] = MARBLES[p.kind] || MARBLES.white;
+    const t = fbm(u * 0.9, v * 0.9, 5, s);
+    const w1 = Math.sin((u * 1.2 + v * 0.7 + t * 3.2) * Math.PI);
+    const w2 = Math.sin((u * 3.1 - v * 1.4 + fbm(u * 2, v * 2, 3, s + 3) * 4) * Math.PI);
+    const vv = p.veins / 100;
+    const veinA = Math.pow(1 - Math.abs(w1), 9) * vv + Math.pow(1 - Math.abs(w2), 26) * vv * 0.6;
+    const cloud = 0.93 + 0.1 * fbm(u * 2.5, v * 2.5, 3, s + 8);
+    mix3(base, vein, clamp01(veinA), o);
+    o[0] *= cloud; o[1] *= cloud; o[2] *= cloud; o[3] = -veinA * 0.1;
+  }, () => ({ metal: false, gloss: 55, spec: 0.45 }));
+
+// Stone: granite / sandstone / slate with speckles and cracks
+const STONES = { granite: [170, 166, 162], sandstone: [196, 164, 120], slate: [72, 78, 88], lava: [46, 40, 40] };
+defMaterial("stone", "Stone",
+  [{ key: "kind", label: "Stone", type: "select", options: [{ id: "granite", name: "Granite" }, { id: "sandstone", name: "Sandstone" }, { id: "slate", name: "Slate" }, { id: "lava", name: "Lava rock" }] },
+   { key: "cracks", label: "Cracks", type: "slider", min: 0, max: 100, step: 1, unit: "%" }],
+  { kind: "granite", cracks: 35, scale: 70, relief: 70, bevel: 7 },
+  { "Granite": {}, "Sandstone": { kind: "sandstone", cracks: 15 }, "Slate": { kind: "slate", cracks: 50 }, "Lava Rock": { kind: "lava", cracks: 70, relief: 90 } },
+  (u, v, s, p, o) => {
+    const c = STONES[p.kind] || STONES.granite;
+    const n = fbm(u * 1.4, v * 1.4, 5, s), sp = rnd(Math.floor(u * 60), Math.floor(v * 60), s + 1);
+    let k = 0.82 + 0.35 * n;
+    if (sp < 0.12) k *= 0.62; else if (sp > 0.93) k *= 1.25;
+    const cr = Math.abs(perlin(u * 1.1, v * 1.1, s + 4) + 0.35 * perlin(u * 3, v * 3, s + 5));
+    const crack = p.cracks > 0 ? 1 - smooth(0, 0.05 * p.cracks / 100, cr) : 0;
+    k *= 1 - 0.65 * crack;
+    o[0] = c[0] * k; o[1] = c[1] * k; o[2] = c[2] * k;
+    if (p.kind === "lava") { const glow = crack * 1.0; o[0] += 255 * glow; o[1] += 90 * glow; o[2] += 10 * glow; }
+    o[3] = n * 0.6 - crack * 0.8 + (sp < 0.12 ? -0.05 : 0);
+  }, () => ({ metal: false, gloss: 8, spec: 0.08 }));
+
+// Diamond plate: raised, alternating diamonds on steel
+defMaterial("diamondPlate", "Diamond Plate",
+  [{ key: "color", label: "Metal colour", type: "color" }],
+  { color: "#b9bec6", scale: 22, relief: 70, bevel: 6 },
+  { "Steel": {}, "Aluminium": { color: "#dfe3e8" }, "Gold Plate": { color: "#e0b65c" }, "Black Steel": { color: "#4a4e56" } },
+  (u, v, s, p, o) => {
+    const c = hex(p.color);
+    const gu = Math.floor(u), gv = Math.floor(v), lu = u - gu - 0.5, lv = v - gv - 0.5;
+    const ang = ((gu + gv) & 1) ? Math.PI / 4 : -Math.PI / 4;
+    const ca = Math.cos(ang), sa = Math.sin(ang), ax = lu * ca + lv * sa, ay = -lu * sa + lv * ca;
+    const e = (ax / 0.4) * (ax / 0.4) + (ay / 0.1) * (ay / 0.1);
+    const bump = e < 1 ? Math.sqrt(1 - e) : 0;
+    const st = perlin(u * 2, v * 40, s) * 0.5;
+    const k = 0.85 + 0.15 * st + 0.12 * bump;
+    o[0] = c[0] * k; o[1] = c[1] * k; o[2] = c[2] * k; o[3] = bump * 1.4 + st * 0.05;
+  }, () => ({ metal: true, gloss: 40, spec: 0.5 }));
+
 // gallery order: group light effects together
-const ORDER = ["chromeExtrude", "inflate", "bevel", "glass", "shadow", "glow", "corona", "backlight", "lightning", "electrify", "star", "fire", "smoke", "motionTrail", "drip", "icicles", "snow", "waterDrops"];
+const ORDER = ["chromeExtrude", "inflate", "bevel", "glass", "brushedMetal", "diamondPlate", "rust", "wood", "marble", "stone", "shadow", "glow", "corona", "backlight", "lightning", "electrify", "star", "fire", "smoke", "motionTrail", "drip", "icicles", "snow", "waterDrops"];
 EFFECTS.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 
 const BY_ID = {};
@@ -1407,6 +1562,8 @@ const COMBOS = {
   "Gold Sparkle": [C("star", { color: "#fff3c4", count: 8, size: 24 }), C("chromeExtrude", { material: "gold", depth: 12 }), C("shadow", { style: "long", angle: 45, distance: 25, color: "#2a1700", opacity: 70 })],
   "Eclipse": [C("bevel", { color: "#141414", width: 6 }), C("backlight", { color: "#ffffff", size: 70, length: 100, softness: 25 })],
   "Solar Gold": [C("chromeExtrude", { material: "gold", depth: 14 }), C("corona", { length: 55 })],
+  "Rust Belt": [C("rust", { amount: 75 }), C("shadow", { style: "drop", distance: 5, blur: 4, opacity: 65, color: "#000000" }), C("smoke", { color: "#55504a", density: 45, height: 70 })],
+  "Marble Luxe": [C("star", { color: "#ffe2a0", count: 5, size: 26 }), C("marble", { kind: "black" }), C("glow", { color: "#d6b26a", size: 10, intensity: 45, core: 10 })],
   "Storm": [C("lightning", { style: "strike", bolts: 7, length: 80, color: "#c79bff" }), C("bevel", { material: "silver", width: 8 }), C("smoke", { color: "#3a3550", density: 70, height: 90 })],
 };
 function comboStack(name) { const c = COMBOS[name]; return c ? normStack({ entries: c.map((x) => entry(x.effect, x.values)) }) : null; }

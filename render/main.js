@@ -306,6 +306,7 @@ function onThumb(m) {
   thumbsReceived++;
   const img = document.querySelector(`img[data-key="${m.key.replace(/"/g, '\\"')}"]`);
   if (img) img.src = m.url;
+  else if (!m.key.startsWith("pr:")) log("thumb without tile", m.key);
 }
 function tile(key, label, title, onClick, cls) {
   const t = document.createElement("div");
@@ -953,10 +954,12 @@ async function runSelfTest() {
       thumbSig = null; requestThumbs("all");
       const want = FX.EFFECTS.length + Object.keys(FX.COMBOS).length + Object.keys(fxDef().presets || {}).length;
       for (let i = 0; i < 80 && thumbsReceived - before < want; i++) await sleep(250);
-      const imgs = Array.from(document.querySelectorAll("#fxGrid img, #comboGrid img")).filter((i) => String(i.src || "").startsWith("data:image/png")).length;
+      const all = Array.from(document.querySelectorAll("#fxGrid img, #comboGrid img"));
+      const imgs = all.filter((i) => String(i.src || "").startsWith("data:image/png")).length;
+      const missing = all.filter((i) => !String(i.src || "").startsWith("data:image/png")).map((i) => i.dataset.key);
       // every tile must show a thumbnail; the WebView may run throttled while the panel is hidden, so new
       // renders only need to be arriving (not all within the timeout)
-      return { ok: thumbsReceived - before > 0 && imgs === FX.EFFECTS.length + Object.keys(FX.COMBOS).length, received: thumbsReceived - before, want, imgs };
+      return { ok: thumbsReceived - before > 0 && imgs === FX.EFFECTS.length + Object.keys(FX.COMBOS).length, received: thumbsReceived - before, want, imgs, missing };
     });
     // ---- building a stack by clicking, like a user
     await check("Stack: + Add puts a second effect into the group", async () => {
