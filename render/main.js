@@ -237,6 +237,7 @@ async function refreshPreviewSource() {
   if (t.group && !loadingFromLayer) {
     const saved = await readGroupParams(t);
     if (saved && saved.sourceId) groupSource.set(t.group.id, saved.sourceId);
+    appliedKey = saved ? stackKey(saved.stack) : null;
     if (saved && stackKey(saved.stack) !== stackKey(state.stack)) {
       loadingFromLayer = true;
       setStack(saved.stack);
@@ -245,6 +246,7 @@ async function refreshPreviewSource() {
       loadingFromLayer = false;
       setStatus(`Loaded from the selected group: ${stackLabel(state.stack)}.`);
     }
+    updatePendingUI(t);
   }
   const b = boundsOf(t.source);
   const bw = b.right - b.left, bh = b.bottom - b.top;
@@ -278,6 +280,22 @@ function currentTarget() { const doc = app.activeDocument; return doc ? resolveT
 // Live mode only ever touches an existing MS Render group
 function liveTarget() { const t = currentTarget(); return !!(t && t.group); }
 function hasTarget() { const t = currentTarget(); return !!(t && t.source); }
+// What the selected group currently has rendered (to show "changes not applied")
+let appliedKey = null;
+function updatePendingUI(t) {
+  if (t === undefined) t = currentTarget();
+  const btn = $("render"), info = $("stackInfo");
+  if (t && t.group) {
+    const pending = appliedKey !== null && stackKey(state.stack) !== appliedKey;
+    btn.textContent = pending ? "Update ●" : "Update";
+    info.textContent = pending ? "changes not applied – Update or Live" : "applied to ✦ " + t.group.name.slice(GROUP_PREFIX.length);
+    info.className = "stack-info" + (pending ? " pending" : "");
+  } else if (t && t.source) {
+    btn.textContent = "Apply";
+    info.textContent = "not applied yet";
+    info.className = "stack-info";
+  } else { info.textContent = ""; info.className = "stack-info"; }
+}
 // Header + main button tell whether you're editing an existing group or adding effects to a plain layer
 function setTargetUI(t) {
   const name = $("sourceName"), btn = $("render");
@@ -290,6 +308,8 @@ function setTargetUI(t) {
     name.title = "Plain layer – click an effect or Apply to add the stack";
     btn.textContent = "Apply";
   } else { name.textContent = "–"; name.title = ""; btn.textContent = "Apply"; }
+  if (!(t && t.group)) appliedKey = null;
+  updatePendingUI(t);
 }
 
 // ---------------------------------------------------------------- gallery: effects, looks, combos
@@ -321,7 +341,7 @@ function buildGallery() {
   const grid = $("fxGrid");
   grid.innerHTML = "";
   for (const e of FX.EFFECTS) {
-    const t = tile("fx:" + e.id, e.name, `${e.name} – click to apply`, () => effectClicked(e.id));
+    const t = tile("fx:" + e.id, e.name, `${e.name} – click to apply (replaces the stack) · ⌥-click: swap only the selected effect`, (ev) => effectClicked(e.id, !!(ev && ev.altKey)));
     t.dataset.effect = e.id;
     grid.appendChild(t);
   }
@@ -346,7 +366,7 @@ function markActive() {
   $("addFx").className = addMode ? "add-on" : "";
 }
 // the stack changed: rebuild everything that depends on it
-function rebuildForStack() { buildStackList(); buildControls(); buildLooks(); markActive(); syncUI(); saveState(); requestThumbs("presets"); sendPreviewParams(); }
+function rebuildForStack() { buildStackList(); buildControls(); buildLooks(); markActive(); syncUI(); saveState(); requestThumbs("presets"); sendPreviewParams(); updatePendingUI(); }
 
 // After a click in the gallery etc.: a group updates right away; a plain layer gets the stack applied
 // (click = apply). Pure stack edits on a plain layer (remove, order, on/off) only change the draft.
@@ -357,13 +377,13 @@ function commit(applyToPlainLayer) {
   else if (t && t.source && applyToPlainLayer) applyRender("manual");
   else if (!t || !t.source) setStatus(`${stackLabel(state.stack)} – select a text or shape layer and press Apply.`);
 }
-function effectClicked(id) {
-  const t = currentTarget();
-  const fresh = !(t && t.group) && !addMode;
+// Click = "I want this effect": the stack becomes just this effect (also the way out of a combo).
+// "+ Add effect" then click = add it to the stack. Option/Alt-click = swap only the selected effect.
+function effectClicked(id, swap) {
   const e = selEntry();
   const values = FX.values(id, state.fx[id]);
-  if (fresh) {
-    // plain layer: a click tries this effect on its own
+  const before = state.stack.entries.length;
+  if (!addMode && !(swap && e)) {
     setStack(FX.single(id, values));
   } else if (addMode || !e) {
     const n = FX.entry(id, values);
@@ -381,6 +401,7 @@ function effectClicked(id) {
   addMode = false;
   commit(true);
   if (!hasTarget()) setStatus(`${FX.BY_ID[id].name} ${added ? "added" : "selected"} – select a text or shape layer and press Apply.`);
+  else if (!added && !swap && before > 1) setStatus(`Stack replaced by ${FX.BY_ID[id].name} – ⌘Z undoes it. Use “+ Add effect” to combine effects.`);
 }
 function comboClicked(name) {
   const st = FX.comboStack(name);
@@ -593,7 +614,9 @@ async function applyRender(mode, pOverride) {
   log("  result", { err, ms: Date.now() - t0 });
   if (err) setStatus("Error: " + err, true);
   else {
-    setTargetUI(resolveTarget(doc));
+    const now = resolveTarget(doc);
+    if (now && now.group && res && res.group && now.group.id === res.group.id) appliedKey = stackKey(p.stack);
+    setTargetUI(now);
     setStatus(`${mode === "auto" ? "Updated" : stackLabel(p.stack)} – ${secs}s${res && res.cropped ? " – cropped at the canvas edge (enable “Expand canvas”)" : ""}.`);
   }
   if (livePending && $("live").checked) { livePending = false; applyRender("live"); }
@@ -973,6 +996,7 @@ function changed() {
   saveState();
   refreshControlVisibility();
   sendPreviewParams();
+  updatePendingUI();
   if (loadingFromLayer || !$("live").checked) return;
   // Live only updates an existing MS Render group. A plain layer gets effects only by an explicit
   // click (effect tile, look, combo or Apply) – so a new text never picks up an effect by accident.
@@ -1095,7 +1119,7 @@ async function runSelfTest() {
       return v;
     });
     await check("Stack: clicking an effect swaps the selected one", async () => {
-      effectClicked("fire"); await waitIdle();          // glow is selected → becomes fire
+      effectClicked("fire", true); await waitIdle();    // ⌥-click: glow is selected → becomes fire
       const v = await verify(renderParams());
       v.stack = stackLabel(state.stack);
       v.ok = v.ok && stackLabel(state.stack) === "Chrome Extrude + Fire";
@@ -1125,6 +1149,24 @@ async function runSelfTest() {
       const v2 = await verify(renderParams());
       return { ok: hiddenOk && v1b.ok && v2.ok && order1 === "Inflate + Shadow + Fire" && order2 === "Inflate + Fire + Shadow" && stackLabel(state.stack) === "Inflate + Shadow",
         order1, order2, hiddenOk, v1b: v1b.ok, v2 };
+    });
+    await check("Clicking one effect replaces a combo (the way out of a combo)", async () => {
+      useStack(FX.comboStack("Thunder Chrome"));
+      await applyRender("manual");
+      const kids0 = resolveTarget(doc).group.layers.length;
+      effectClicked("glow"); await waitIdle();
+      const v = await verify(renderParams());
+      v.kids0 = kids0; v.stack = stackLabel(state.stack);
+      v.ok = v.ok && kids0 === 4 && v.stack === "Glow" && v.children.length === 2;
+      return v;
+    });
+    await check("Changed settings are marked until Update", async () => {
+      const b0 = $("render").textContent;
+      setValues({ size: 33 }); changed();
+      const b1 = $("render").textContent, info1 = $("stackInfo").textContent;
+      await applyRender("manual");
+      const b2 = $("render").textContent;
+      return { ok: b0 === "Update" && b1 === "Update ●" && info1.startsWith("changes not applied") && b2 === "Update", b0, b1, info1, b2 };
     });
     await check("Stack: removing the last effect gives back the plain layer", async () => {
       for (const e of state.stack.entries.slice()) { removeEntry(e.uid); await waitIdle(); }

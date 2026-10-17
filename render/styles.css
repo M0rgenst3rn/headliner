@@ -131,3 +131,5 @@ select { width: 100%; }
 .stack-row .rm { font-size: 10px; }
 .fx-tile.adding { border-color: rgba(255, 255, 255, 0.35); border-style: dashed; }
 .ctl-num.wide { width: 60px; text-align: left; }
+.stack-info { font-size: 9px; letter-spacing: 0; text-transform: none; opacity: 0.6; margin-left: 6px; font-weight: normal; }
+.stack-info.pending { opacity: 1; color: #ffb35c; }

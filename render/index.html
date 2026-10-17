@@ -28,11 +28,11 @@
 
     <div class="actions">
       <sp-button size="s" variant="cta" id="render">Apply</sp-button>
-      <sp-button size="s" variant="secondary" id="remove">Remove</sp-button>
+      <sp-button size="s" variant="secondary" id="remove" title="Removes all effects – the original layer is back">Remove all</sp-button>
     </div>
     <div id="status" class="status"></div>
     <div class="stack-head">
-      <span class="section-title">Stack</span>
+      <span class="section-title">Stack <span id="stackInfo" class="stack-info"></span></span>
       <sp-action-button size="s" quiet id="addFx" title="Add another effect: click this, then an effect below">+ Add effect</sp-action-button>
     </div>
     <div id="stackList" class="stack-list"></div>
@@ -78,7 +78,7 @@
     <div class="section">
       <div class="section-title">Tools</div>
       <div class="row">
-        <sp-action-button size="s" quiet id="resetAll">Reset effect</sp-action-button>
+        <sp-action-button size="s" quiet id="resetAll" title="Default settings for the selected effect">Reset settings</sp-action-button>
         <sp-action-button size="s" quiet id="selfTest" title="Creates a test document and checks every effect">Self-test</sp-action-button>
       </div>
     </div>
