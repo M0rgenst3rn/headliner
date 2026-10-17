@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>MS Render showcase</title>
+<style>body { background: #111; color: #ccc; font: 12px -apple-system, sans-serif; } canvas { max-width: 100%; display: block; margin: 8px 0; }</style>
+</head>
+<body>
+<!-- Renders the README images with the real effect engine (Arial Black, italic).
+     Serve the project root and open tools/showcase.html; with ?save=1 each image is POSTed to /save?name=… -->
+<div id="log">rendering…</div>
+<script src="../render/preview/fx.js"></script>
+<script>
+const { FX } = window.MSR;
+const FONT = (px) => `italic 900 ${px}px "Arial Black", Arial, sans-serif`;
+const LABEL = (px, w) => `${w || 700} ${px}px Arial, sans-serif`;
+const SAVE = new URLSearchParams(location.search).has("save");
+const log = (s) => { document.getElementById("log").textContent = s; };
+
+// text → engine source (alpha + colour), with room for the italic slant
+function textSource(text, px, color) {
+  const c = document.createElement("canvas"), x = c.getContext("2d");
+  x.font = FONT(px);
+  const w = Math.ceil(x.measureText(text).width + px * 0.45), h = Math.ceil(px * 1.12);
+  c.width = w; c.height = h;
+  x.font = FONT(px); x.fillStyle = color || "#ff3f8e"; x.textBaseline = "alphabetic";
+  x.fillText(text, px * 0.12, Math.round(px * 0.93));
+  const d = x.getImageData(0, 0, w, h).data, a = new Uint8Array(w * h), rgb = new Uint8Array(w * h * 3);
+  for (let i = 0; i < w * h; i++) { a[i] = d[i * 4 + 3]; rgb[i * 3] = d[i * 4]; rgb[i * 3 + 1] = d[i * 4 + 1]; rgb[i * 3 + 2] = d[i * 4 + 2]; }
+  return { alpha: a, rgb, w, h, canvas: c };
+}
+const toCanvas = (rgba, w, h) => { const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(rgba), w, h), 0, 0); return c; };
+// renders a stack and composes it like Photoshop's group: above → base → source → behind (top → bottom)
+// text size for a stack: a lightning bolt widens the frame, so the text is rendered larger
+const sizeFor = (st, px) => px;
+function compose(src, stack) {
+  const res = FX.renderStack(src, stack);
+  const list = [];
+  for (const l of res.layers) list.push({ c: toCanvas(l.rgba, l.w, l.h), x: l.x, y: l.y, zone: l.zone });
+  const srcL = { c: src.canvas, x: 0, y: 0, zone: "source" };
+  const order = list.filter((l) => l.zone === "above").concat(list.filter((l) => l.zone === "base"), res.sourceVisible ? [srcL] : [], list.filter((l) => l.zone === "behind"));
+  let x0 = 0, y0 = 0, x1 = src.w, y1 = src.h;
+  for (const l of order) { x0 = Math.min(x0, l.x); y0 = Math.min(y0, l.y); x1 = Math.max(x1, l.x + l.c.width); y1 = Math.max(y1, l.y + l.c.height); }
+  // a lightning bolt strikes from far above: crop so the text stays big (the bolt enters from the edge)
+  if (stack.entries.some((e) => e.effect === "lightning")) { x0 = Math.max(x0, -src.w * 0.12); x1 = Math.min(x1, src.w * 1.12); y0 = Math.max(y0, -src.h * 1.1); y1 = Math.min(y1, src.h * 1.4); }
+  const out = document.createElement("canvas"); out.width = x1 - x0; out.height = y1 - y0;
+  const o = out.getContext("2d");
+  for (const l of order.slice().reverse()) o.drawImage(l.c, l.x - x0, l.y - y0);
+  return out;
+}
+function bg(x, X, Y, W, H, r) {
+  const g = x.createRadialGradient(X + W / 2, Y + H * 0.45, 10, X + W / 2, Y + H / 2, Math.max(W, H) * 0.75);
+  g.addColorStop(0, "#30333b"); g.addColorStop(1, "#15171b");
+  x.fillStyle = g;
+  x.beginPath(); x.roundRect(X, Y, W, H, r || 14); x.fill();
+}
+function fit(x, img, X, Y, W, H) {
+  const s = Math.min(1, W / img.width, H / img.height), w = img.width * s, h = img.height * s;
+  x.drawImage(img, X + (W - w) / 2, Y + (H - h) / 2, w, h);
+}
+function tileGrid(items, cols, tw, th, title) {
+  const pad = 16, head = title ? 70 : 0, rows = Math.ceil(items.length / cols);
+  const c = document.createElement("canvas"); c.width = cols * (tw + pad) + pad; c.height = head + rows * (th + pad) + pad;
+  const x = c.getContext("2d");
+  x.fillStyle = "#0d0e10"; x.fillRect(0, 0, c.width, c.height);
+  if (title) { x.fillStyle = "#f2f2f2"; x.font = FONT(34); x.fillText(title, pad + 4, 50); }
+  items.forEach((it, n) => {
+    const X = pad + (n % cols) * (tw + pad), Y = head + pad + Math.floor(n / cols) * (th + pad);
+    bg(x, X, Y, tw, th);
+    fit(x, it.img, X + 14, Y + 12, tw - 28, th - 58);
+    x.fillStyle = "#f2f2f2"; x.font = LABEL(19); x.fillText(it.label, X + 16, Y + th - 22);
+    if (it.sub) { x.fillStyle = "#8b8f98"; x.font = LABEL(14, 400); x.textAlign = "right"; x.fillText(it.sub, X + tw - 16, Y + th - 22); x.textAlign = "left"; }
+  });
+  return c;
+}
+async function save(name, c) {
+  document.body.appendChild(c);
+  if (!SAVE) return;
+  const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+  await fetch("/save?name=" + encodeURIComponent(name), { method: "POST", body: blob });
+}
+const tick = () => new Promise((r) => setTimeout(r, 0));
+const S = (entries) => ({ entries: entries.map(([e, v]) => FX.entry(e, v || {})) });
+const ZONE = { base: "replaces the look", behind: "behind", above: "on top" };
+
+async function run() {
+  // 1) hero
+  {
+    const src = textSource("MS RENDER", 300, "#ffffff");
+    const img = compose(src, S([["star", { count: 5, size: 26, glow: 70 }], ["chromeExtrude", { material: "chrome", depth: 24 }], ["glow", { color: "#5aa8ff", size: 12, intensity: 70, core: 20 }]]));
+    const c = document.createElement("canvas"); c.width = 1800; c.height = 720;
+    const x = c.getContext("2d");
+    const g = x.createRadialGradient(900, 330, 40, 900, 360, 1100); g.addColorStop(0, "#2b2f38"); g.addColorStop(1, "#0b0c0e");
+    x.fillStyle = g; x.fillRect(0, 0, c.width, c.height);
+    fit(x, img, 90, 40, 1620, 520);
+    x.textAlign = "center"; x.fillStyle = "#e9e9e9"; x.font = LABEL(34);
+    x.fillText("Retro & modern 3D text effects for Photoshop", 900, 625);
+    x.fillStyle = "#8b8f98"; x.font = LABEL(22, 400);
+    x.fillText(FX.EFFECTS.length + " effects · stacks · 15 combos · live text stays editable · export for print", 900, 668);
+    await save("hero.png", c); log("hero"); await tick();
+  }
+  // 2) all effects
+  {
+    const src = textSource("RENDER", 96);
+    const items = [];
+    for (const e of FX.EFFECTS) { const st = FX.single(e.id, {}); items.push({ img: compose(sizeFor(st, 96) === 96 ? src : textSource("RENDER", sizeFor(st, 96)), st), label: e.name, sub: ZONE[FX.zoneOf(e.id)] }); await tick(); }
+    await save("effects.png", tileGrid(items, 5, 400, 230, "All " + FX.EFFECTS.length + " effects")); log("effects");
+  }
+  // 3) Chrome Extrude materials
+  {
+    const mats = [["chrome", "Chrome (80s)"], ["silver", "Silver"], ["gold", "Gold"], ["rosegold", "Rose Gold"], ["copper", "Copper"], ["blackchrome", "Black Chrome"], ["ice", "Ice"], ["synthwave", "Synthwave"], ["holo", "Holographic"], ["custom", "Your own colours"]];
+    const items = [];
+    const custom = { skyTop: "#14062e", skyHorizon: "#7ff7ff", groundHorizon: "#ff3fa4", groundBottom: "#2a0a4a" };
+    for (const [m, n] of mats) { items.push({ img: compose(textSource(n.split(" ")[0].toUpperCase().replace("YOUR", "CUSTOM"), 110, "#fff"), S([["chromeExtrude", Object.assign({ material: m }, m === "custom" ? custom : {})]])), label: n, sub: m === "custom" ? "sky + ground colours" : "material" }); await tick(); }
+    await save("chrome-materials.png", tileGrid(items, 2, 640, 260, "Chrome Extrude · 10 materials")); log("chrome");
+  }
+  // 4) combos
+  {
+    const words = { "Thunder Chrome": "THUNDER", "Flame Biker": "FLAME", "Neon Sign": "NEON", "Toxic Slime": "TOXIC", "Frozen": "FROZEN", "70s Groove": "GROOVY", "Sticker Pop": "POP", "Comic Burst": "BOOM", "Hot Rod": "HOT ROD", "Gold Sparkle": "SPARKLE", "Eclipse": "ECLIPSE", "Solar Gold": "SOLAR", "Rust Belt": "RUST", "Marble Luxe": "LUXE", "Storm": "STORM" };
+    const items = [];
+    for (const n of Object.keys(FX.COMBOS)) {
+      const st = FX.comboStack(n);
+      items.push({ img: compose(textSource(words[n] || n.toUpperCase(), sizeFor(st, 100)), st), label: n, sub: st.entries.map((e) => FX.BY_ID[e.effect].name).join(" + ") });
+      await tick();
+    }
+    await save("combos.png", tileGrid(items, 3, 560, 290, "15 combos – ready-made stacks")); log("combos");
+  }
+  // 5) building a stack step by step
+  {
+    const src = textSource("HOT", 120, "#fff");
+    const steps = [
+      ["1 · Look: Chrome Extrude", [["chromeExtrude", { material: "silver" }]], "material Silver"],
+      ["2 · + Fire", [["chromeExtrude", { material: "silver" }], ["fire", { height: 90 }]], "behind"],
+      ["3 · + Glow", [["chromeExtrude", { material: "silver" }], ["fire", { height: 90 }], ["glow", { color: "#ff7a1a", size: 12, intensity: 60 }]], "behind"],
+      ["4 · + Star", [["star", { count: 5, size: 34, glow: 80 }], ["chromeExtrude", { material: "silver" }], ["fire", { height: 90 }], ["glow", { color: "#ff7a1a", size: 12, intensity: 60 }]], "on top"],
+    ];
+    const items = [];
+    for (const [label, st, sub] of steps) { items.push({ img: compose(src, S(st)), label, sub }); await tick(); }
+    await save("stack-steps.png", tileGrid(items, 4, 420, 300, "Building a stack: + Add effect")); log("steps");
+  }
+  // 6) your look stays: silver chrome + a combo
+  {
+    const src = textSource("SILVER", 100, "#fff");
+    const mine = { entries: [FX.entry("chromeExtrude", { material: "silver", depth: 30 })] };
+    const items = [{ img: compose(src, mine), label: "Your look", sub: "Chrome Extrude · Silver" }];
+    for (const n of ["Flame Biker", "Thunder Chrome", "Gold Sparkle"]) { const st = FX.applyCombo(mine, n, "replace").stack; items.push({ img: compose(sizeFor(st, 100) === 100 ? src : textSource("SILVER", sizeFor(st, 100), "#fff"), st), label: "+ " + n, sub: "your silver stays" }); await tick(); }
+    await save("look-stays.png", tileGrid(items, 4, 420, 260, "Combos keep your look")); log("look");
+  }
+  // 7) combination ideas (stacks you can build yourself)
+  {
+    const ideas = [
+      ["NEON", "Bevel pink + Glow + Electrify", [["electrify", { color: "#ff4fd8" }], ["bevel", { color: "#ff3fa4", width: 5, profile: "round" }], ["glow", { color: "#ff2bd6", size: 20, core: 50 }]]],
+      ["WINTER", "Glass + Snow + Backlight", [["snow", { thickness: 10, flakes: 30 }], ["glass", { tint: "#9fe2ff" }], ["backlight", { color: "#cfeaff" }]]],
+      ["GOLD", "Chrome Gold + Corona + Star", [["star", { count: 5, size: 34, glow: 80, color: "#fff1c9" }], ["chromeExtrude", { material: "gold" }], ["corona", {}]]],
+      ["SPEED", "Chrome Black + Motion Trail + Shadow", [["chromeExtrude", { material: "blackchrome" }], ["motionTrail", {}], ["shadow", {}]]],
+      ["WOOD", "Wood + Sticker + Shadow", [["wood", {}], ["sticker", {}], ["shadow", { style: "drop" }]]],
+      ["RETRO", "Inflate + Retro Stack", [["inflate", { color: "#ffcf5a" }], ["retroStack", {}]]],
+    ];
+    const items = [];
+    for (const [w, label, st] of ideas) { items.push({ img: compose(textSource(w, 100), S(st)), label, sub: "" }); await tick(); }
+    await save("ideas.png", tileGrid(items, 3, 560, 280, "Combination ideas")); log("ideas");
+  }
+  log("done");
+  window.DONE = true;
+}
+document.fonts.load(FONT(100)).then(run).catch((e) => { log("ERR " + e); window.DONE = "err"; });
+window.onerror = (m) => { log("ERR " + m); window.DONE = "err"; };
+</script>
+</body>
+</html>
