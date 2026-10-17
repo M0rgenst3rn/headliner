@@ -1,7 +1,7 @@
 {
   "id": "com.linus.msrender",
   "name": "MS Render",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "main": "index.html",
   "manifestVersion": 5,
   "host": { "app": "PS", "minVersion": "24.2.0" },

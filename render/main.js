@@ -810,6 +810,8 @@ function buildControls() {
     motionTrail: "Drag in the preview to set direction and length.",
     lightning: "Point to point: drag the start (A) and end (B) of the bolt in the preview. Seed = a new bolt.",
     star: "Seed = new positions. Edges = where the light would catch the letters.",
+    backlight: "Drag in the preview to move the light behind the text – the letters cast the light shafts.",
+    corona: "Seed = new ray pattern. Wispiness bends the rays like an aurora.",
   };
   $("controlsHint").textContent = hints[fx.id] || "Sizes in % of the text height, so a look scales with your text.";
 }
@@ -1023,6 +1025,10 @@ async function runSelfTest() {
       state.sel = l.uid;
       onDrag({ type: "drag", uid: l.uid, values: { ax: -40, ay: -90 }, final: false });
       onDrag({ type: "drag", uid: l.uid, values: { bx: 80, by: 30 }, final: true });
+      useStack(FX.single("backlight", {}));
+      const b = state.stack.entries[0];
+      onDrag({ type: "drag", uid: b.uid, values: { lx: 20, ly: -30 }, final: true });
+      if (b.values.lx !== 20 || b.values.ly !== -30) return { ok: false, light: [b.values.lx, b.values.ly] };
       return { ok: s.values.angle === 120 && s.values.distance === 70 && l.values.ax === -40 && l.values.ay === -90 && l.values.bx === 80 && l.values.by === 30,
         shadow: [s.values.angle, s.values.distance], bolt: [l.values.ax, l.values.ay, l.values.bx, l.values.by] };
     });

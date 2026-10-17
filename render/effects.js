@@ -891,8 +891,106 @@ def({
   },
 });
 
+// ---------------------------------------------------------------- Corona – radiant flares around the shape
+def({
+  id: "corona", name: "Corona", mode: "behind",
+  defaults: { color: "#ffa63d", core: "#fff3d1", length: 45, rays: 55, wisp: 45, intensity: 85, seed: 6 },
+  controls: [
+    { key: "color", label: "Colour", type: "color" },
+    { key: "core", label: "Inner colour", type: "color" },
+    { key: "length", label: "Ray length", type: "slider", min: 5, max: 150, step: 1, unit: "%" },
+    { key: "rays", label: "Rays", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "wisp", label: "Wispiness", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "intensity", label: "Intensity", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "seed", label: "Seed", type: "slider", min: 0, max: 999, step: 1, unit: "" },
+  ],
+  presets: { "Solar Flare": {}, "Aurora": { color: "#2dffb0", core: "#d8fff2", wisp: 90, rays: 30, length: 70 }, "Halo": { rays: 0, wisp: 10, length: 25, color: "#9fd0ff", core: "#ffffff" }, "Supernova": { length: 110, rays: 85, intensity: 100 } },
+  extent: (v, box) => { const m = v.length / 100 * box.h * 2.6 + 6; return { l: m, t: m, r: m, b: m }; },
+  render(ctx, v) {
+    const { w, h, box } = ctx, N = w * h, H = box.h, dOut = ctx.F.dOut, s = v.seed | 0;
+    const L = Math.max(2, v.length / 100 * H), I = v.intensity / 100, R = 2 + v.rays / 100 * 14, wsp = v.wisp / 100;
+    const cx = box.x0 + box.w / 2, cy = box.y0 + H / 2, col = hex(v.color), core = hex(v.core);
+    const out = new Uint8ClampedArray(N * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, d = dOut[i];
+      if (d > L * 2.6) continue;
+      // angle around the (elliptical) shape centre – periodic noise on the unit circle gives the rays
+      const ang = Math.atan2((y - cy) / H, (x - cx) / Math.max(H, box.w * 0.5));
+      const ca = Math.cos(ang), sa = Math.sin(ang), tw = d / L * wsp * 1.5;
+      const n = v.rays > 0 ? fbm(ca * R + tw, sa * R - tw * 0.6, 3, s) : 0;
+      const streak = clamp01(0.55 + 1.1 * n);
+      const fall = Math.exp(-d / (L * (0.25 + 0.75 * streak * streak)));
+      const inner = Math.exp(-d / (L * 0.12));
+      const A = clamp01((fall * (0.25 + 0.75 * streak) + inner * 0.55) * I);
+      if (A <= 0.003) continue;
+      const k = clamp01(inner * 1.2 + (1 - d / L) * 0.25);
+      out[i * 4] = col[0] + (core[0] - col[0]) * k; out[i * 4 + 1] = col[1] + (core[1] - col[1]) * k; out[i * 4 + 2] = col[2] + (core[2] - col[2]) * k;
+      out[i * 4 + 3] = A * 255;
+    }
+    return out;
+  },
+});
+
+// ---------------------------------------------------------------- Backlight – light behind the shape, rays through the gaps
+// A pixel at distance D from the light collects light from D·(1-span) onwards, so rays reach R / (1-span).
+function backlightReach(v, H) { const R = Math.max(2, v.size / 100 * H); return R / (1 - v.length / 100 * 0.75); }
+def({
+  id: "backlight", name: "Backlight", mode: "behind", drag: "pt",
+  defaults: { color: "#ffe6a8", lx: 50, ly: 45, size: 55, length: 90, intensity: 90, softness: 50 },
+  controls: [
+    { key: "color", label: "Colour", type: "color" },
+    { key: "size", label: "Light size", type: "slider", min: 5, max: 200, step: 1, unit: "%" },
+    { key: "length", label: "Ray length", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "intensity", label: "Intensity", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "softness", label: "Softness", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
+    { key: "lx", label: "Light X", type: "slider", min: -100, max: 200, step: 1, unit: "%" },
+    { key: "ly", label: "Light Y", type: "slider", min: -200, max: 300, step: 1, unit: "%" },
+  ],
+  presets: { "Sunrise": {}, "Eclipse": { color: "#ffffff", size: 45, length: 100, softness: 20 }, "Spotlight": { ly: -60, size: 35, length: 100, color: "#e8f1ff" }, "Neon Back": { color: "#ff3fd0", size: 80, length: 60 } },
+  extent: (v, box) => {
+    const H = box.h, lx = box.x0 + v.lx / 100 * box.w, ly = box.y0 + v.ly / 100 * H;
+    const reach = backlightReach(v, H) + 6;
+    return { l: Math.max(0, box.x0 - (lx - reach)), t: Math.max(0, box.y0 - (ly - reach)), r: Math.max(0, lx + reach - (box.x0 + box.w)), b: Math.max(0, ly + reach - (box.y0 + H)) };
+  },
+  render(ctx, v) {
+    const { w, h, box, alpha } = ctx, N = w * h, H = box.h;
+    const lx = box.x0 + v.lx / 100 * box.w, ly = box.y0 + v.ly / 100 * H, R = Math.max(2, v.size / 100 * H);
+    const soft = 0.15 + v.softness / 100 * 0.85;
+    // light source: a soft disc, blocked wherever the shape is (that's what casts the shafts)
+    const src = new Float32Array(N);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, r = Math.hypot(x - lx, y - ly) / R;
+      const disc = r < 1 - soft ? 1 : clamp01((1 - r) / soft);
+      src[i] = disc * (1 - alpha[i] / 255);
+    }
+    // god rays: march from each pixel towards the light and collect the unblocked light (radial blur)
+    const K = 40, span = v.length / 100 * 0.75, I = v.intensity / 100, col = hex(v.color), reach = backlightReach(v, H);
+    const out = new Uint8ClampedArray(N * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const fade = clamp01((1 - Math.hypot(x - lx, y - ly) / reach) * 2.5);   // rays die out before the edge
+      if (fade <= 0) continue;
+      let acc = src[i], wsum = 1;
+      if (span > 0) {
+        const dx = (lx - x) * span / K, dy = (ly - y) * span / K, j = rnd(x, y, 7);   // jitter hides banding
+        let px = x + dx * j, py = y + dy * j, wk = 1;
+        for (let k = 1; k <= K; k++) {
+          px += dx; py += dy; wk *= 0.965;
+          const xi = Math.round(px), yi = Math.round(py);
+          if (xi >= 0 && yi >= 0 && xi < w && yi < h) acc += src[yi * w + xi] * wk;
+          wsum += wk;
+        }
+      }
+      const A = clamp01((acc / wsum * 3.2 + src[i] * 0.3) * I * fade);
+      if (A <= 0.003) continue;
+      out[i * 4] = col[0]; out[i * 4 + 1] = col[1]; out[i * 4 + 2] = col[2]; out[i * 4 + 3] = A * 255;
+    }
+    return out;
+  },
+});
+
 // gallery order: group light effects together
-const ORDER = ["chromeExtrude", "inflate", "bevel", "glass", "shadow", "glow", "lightning", "electrify", "star", "fire", "smoke", "motionTrail", "drip", "icicles", "snow", "waterDrops"];
+const ORDER = ["chromeExtrude", "inflate", "bevel", "glass", "shadow", "glow", "corona", "backlight", "lightning", "electrify", "star", "fire", "smoke", "motionTrail", "drip", "icicles", "snow", "waterDrops"];
 EFFECTS.sort((a, b) => ORDER.indexOf(a.id) - ORDER.indexOf(b.id));
 
 const BY_ID = {};
@@ -1017,6 +1115,8 @@ const COMBOS = {
   "Frozen": [C("snow", { thickness: 10, flakes: 25 }), C("icicles", { length: 45 }), C("glass", { tint: "#9fe2ff" }), C("glow", { color: "#bfefff", size: 12, intensity: 50, core: 10 })],
   "Hot Rod": [C("inflate", { color: "#ff5a1f", puff: 60 }), C("fire", { height: 70 }), C("shadow", { style: "drop", distance: 6, blur: 5, opacity: 55, color: "#000000" })],
   "Gold Sparkle": [C("star", { color: "#fff3c4", count: 8, size: 24 }), C("chromeExtrude", { material: "gold", depth: 12 }), C("shadow", { style: "long", angle: 45, distance: 25, color: "#2a1700", opacity: 70 })],
+  "Eclipse": [C("bevel", { color: "#141414", width: 6 }), C("backlight", { color: "#ffffff", size: 70, length: 100, softness: 25 })],
+  "Solar Gold": [C("chromeExtrude", { material: "gold", depth: 14 }), C("corona", { length: 55 })],
   "Storm": [C("lightning", { style: "strike", bolts: 7, length: 80, color: "#c79bff" }), C("bevel", { material: "silver", width: 8 }), C("smoke", { color: "#3a3550", density: 70, height: 90 })],
 };
 function comboStack(name) { const c = COMBOS[name]; return c ? normStack({ entries: c.map((x) => entry(x.effect, x.values)) }) : null; }

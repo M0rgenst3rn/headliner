@@ -336,7 +336,7 @@ function drawGuides() {
   x.clearRect(0, 0, ov.width, ov.height);
   if (!geo || !geo.fx || !geo.box || !state || geo.uid !== state.uid) { hint.textContent = ""; ov.className = ""; return; }
   const fx = geo.fx, v = state.values, b = geo.box, kind = dragKind();
-  hint.textContent = { vp: "drag: vanishing point", dir: "drag: direction", ab: "drag: bolt start / end" }[kind] || "";
+  hint.textContent = { vp: "drag: vanishing point", dir: "drag: direction", ab: "drag: bolt start / end", pt: "drag: light source" }[kind] || "";
   ov.className = kind ? "drag" : "";
   if (!kind) return;
   const lw = Math.max(1, geo.w / 300);
@@ -348,6 +348,11 @@ function drawGuides() {
     for (const [cx, cy] of [[b.x0, b.y0], [b.x0 + b.w, b.y0], [b.x0, b.y0 + b.h], [b.x0 + b.w, b.y0 + b.h]]) { x.beginPath(); x.moveTo(cx, cy); x.lineTo(vp.x, vp.y); x.stroke(); }
     x.setLineDash([]);
     marker(x, vp.x, vp.y, lw);
+  } else if (kind === "pt") {
+    const px = b.x0 + v.lx / 100 * b.w, py = b.y0 + v.ly / 100 * b.h, R = v.size / 100 * b.h;
+    x.setLineDash([4 * lw, 4 * lw]); x.strokeStyle = "rgba(255,255,255,0.4)";
+    x.beginPath(); x.arc(px, py, Math.max(4, R), 0, Math.PI * 2); x.stroke(); x.setLineDash([]);
+    marker(x, px, py, lw);
   } else if (kind === "ab") {
     const [A, B] = abPoints();
     x.setLineDash([4 * lw, 4 * lw]); x.strokeStyle = "rgba(255,255,255,0.35)";
@@ -395,6 +400,7 @@ function dragTo(e) {
   let upd = null;
   if (fx.drag === "vp") upd = { vpX: Math.round((p.x - b.x0) / b.w * 100 / 5) * 5, vpY: Math.round((p.y - b.y0) / b.h * 100 / 5) * 5 };
   else if (fx.drag === "dir") upd = FX.BY_ID[fx.id].dragApply(state.values, p.x - (b.x0 + b.w / 2), p.y - (b.y0 + b.h / 2), b);
+  else if (fx.drag === "pt") upd = { lx: Math.max(-100, Math.min(200, Math.round((p.x - b.x0) / b.w * 100))), ly: Math.max(-200, Math.min(300, Math.round((p.y - b.y0) / b.h * 100))) };
   else if (dragKind() === "ab") {
     if (e.type === "pointerdown") { const [A, B] = abPoints(); abHandle = Math.hypot(p.x - A.x, p.y - A.y) < Math.hypot(p.x - B.x, p.y - B.y) ? "a" : "b"; }
     const px = Math.max(-300, Math.min(400, Math.round((p.x - b.x0) / b.w * 100))), py = Math.max(-400, Math.min(500, Math.round((p.y - b.y0) / b.h * 100)));
