@@ -16,8 +16,16 @@ const STORE_KEY = "msrender.state.v3";
 const GROUP_PREFIX = "MS Render · ";
 const HIST = "MS Render";
 const XMP_NS = "http://ms-render/1.0/";
-// render layers of removed effects (v0.2–0.6) are still recognised, so old groups stay intact and get replaced on update
-const RENDER_NAMES = new Set(FX.EFFECTS.map((e) => e.name).concat(["Drip", "Icicles"]));
+// Render layers are named "✦ <Effect>". A source text that happens to read "Glow" or "Fire" is never taken for
+// one. Plain effect names (v0.2–0.8, incl. removed effects) only count once the group's source id is known.
+const RENDER_PREFIX = "✦ ";
+const EFFECT_NAMES = new Set(FX.EFFECTS.map((e) => e.name).concat(["Drip", "Icicles"]));
+const renderLayerName = (effect) => RENDER_PREFIX + FX.BY_ID[effect].name;
+function isRenderLayerName(n, legacyOk) {
+  n = String(n);
+  if (n.startsWith(RENDER_PREFIX)) return EFFECT_NAMES.has(n.slice(RENDER_PREFIX.length));
+  return !!legacyOk && EFFECT_NAMES.has(n);
+}
 const THUMB = { tw: 200, th: 124 };
 const ZONE_LABEL = { above: "on top", base: "look", behind: "behind" };
 
@@ -109,17 +117,22 @@ function log(msg, data) {
 // An MS Render group holds its source plus one render layer per effect. The source is identified by its
 // layer id (stored in the render layers' XMP and cached here) – never by position, so a new layer that
 // Photoshop drops into the group can't be mistaken for the source.
-const groupSource = new Map(); // group id -> source layer id
+const groupSource = new Map(); // group id -> source layer id (-1 = group without readable settings)
 function groupParts(group) {
   // compare by id: Photoshop's DOM hands out a new wrapper object on every access
   const kids = Array.from(group.layers);
-  const renderLayers = kids.filter((k) => RENDER_NAMES.has(k.name));
+  const sid = groupSource.get(group.id);
+  const renderLayers = kids.filter((k) => k.id !== sid && isRenderLayerName(k.name, sid !== undefined));
   const rids = new Set(renderLayers.map((k) => k.id));
   const others = kids.filter((k) => !rids.has(k.id));
-  const sid = groupSource.get(group.id);
   // fallback (not cached yet / older groups): the oldest layer = smallest id is the original source
   const source = others.find((k) => k.id === sid) || others.slice().sort((a, b) => a.id - b.id)[0] || null;
-  return { renderLayers, source, foreign: others.filter((k) => !source || k.id !== source.id) };
+  const foreign = others.filter((k) => !source || k.id !== source.id);
+  // Only a NEW TEXT layer (made after the effects – e.g. typed while the group was selected) is moved out.
+  // Anything else you put into the group on purpose (adjustments, textures, own layers) stays.
+  const newest = renderLayers.reduce((m, k) => Math.max(m, k.id), 0);
+  const ejectable = sid === undefined ? [] : foreign.filter((k) => String(k.kind).toLowerCase() === "text" && k.id > newest);
+  return { renderLayers, source, foreign, ejectable };
 }
 // Returns { group, source, renderLayers } for the current selection.
 function resolveTarget(doc) {
@@ -129,28 +142,30 @@ function resolveTarget(doc) {
   if (isRenderGroup(l)) group = l;
   else if (l.parent && isRenderGroup(l.parent)) group = l.parent;
   if (group) {
-    const { renderLayers, source, foreign } = groupParts(group);
-    // a layer that doesn't belong to the effect (e.g. new text created while the group was selected)
-    if (foreign.some((k) => k.id === l.id)) return { group: null, source: null, renderLayers: [], foreignIn: group, error: "This layer sits inside an MS Render group – moving it out…" };
+    const { renderLayers, source, ejectable } = groupParts(group);
+    // a new text that doesn't belong to the effect (created while the group was selected)
+    if (ejectable.some((k) => k.id === l.id)) return { group: null, source: null, renderLayers: [], foreignIn: group, error: "This layer sits inside an MS Render group – moving it out…" };
     return { group, source, renderLayers };
   }
   if (isGroup(l)) return { group: null, source: null, renderLayers: [], error: "Select a text or shape layer (not a group)." };
   if (l.isBackgroundLayer) return { group: null, source: null, renderLayers: [], error: "The background layer can't be used. Convert it to a normal layer first." };
   return { group: null, source: l, renderLayers: [] };
 }
-function sourceSignature(layer) {
+// What the effects depend on: text + size (not the position – moving the group needs no re-render)
+function contentSignature(layer) {
   let text = "";
   try { text = layer.textItem ? layer.textItem.contents : ""; } catch (e) { /* not text */ }
-  return JSON.stringify([layer.id, text, boundsOf(layer)]);
+  const b = boundsOf(layer);
+  return JSON.stringify([text, b.right - b.left, b.bottom - b.top]);
 }
 
 // ---------------------------------------------------------------- XMP params (on every render layer)
-function xmpFor(stack, sourceId) {
-  const json = JSON.stringify({ stack: { entries: stack.entries }, sourceId: sourceId || null }).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+function xmpFor(stack, sourceId, sig) {
+  const json = JSON.stringify({ stack: { entries: stack.entries }, sourceId: sourceId || null, sig: sig || null }).replace(/&/g, "&amp;").replace(/</g, "&lt;");
   return `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:msr="${XMP_NS}"><msr:params>${json}</msr:params></rdf:Description></rdf:RDF></x:xmpmeta>`;
 }
-async function writeLayerParams(layerId, stack, sourceId) {
-  await batchPlay([{ _obj: "set", _target: [{ _ref: "property", _property: "XMPMetadataAsUTF8" }, { _ref: "layer", _id: layerId }], to: { _obj: "layer", XMPMetadataAsUTF8: xmpFor(stack, sourceId) } }], {});
+async function writeLayerParams(layerId, stack, sourceId, sig) {
+  await batchPlay([{ _obj: "set", _target: [{ _ref: "property", _property: "XMPMetadataAsUTF8" }, { _ref: "layer", _id: layerId }], to: { _obj: "layer", XMPMetadataAsUTF8: xmpFor(stack, sourceId, sig) } }], {});
 }
 // -> { stack, sourceId } (older single-effect formats are converted)
 async function readLayerParams(layerId) {
@@ -160,14 +175,24 @@ async function readLayerParams(layerId) {
     const m = x && /<msr:params>([\s\S]*?)<\/msr:params>/.exec(x);
     if (!m) return null;
     const o = JSON.parse(m[1].replace(/&lt;/g, "<").replace(/&amp;/g, "&"));
-    if (o.stack) return { stack: FX.normStack(o.stack), sourceId: o.sourceId || null };
-    if (o.effect && FX.BY_ID[o.effect]) return { stack: FX.single(o.effect, o.values), sourceId: o.sourceId || null };   // v0.2–0.3
-    return { stack: FX.single("chromeExtrude", o), sourceId: null };                                                        // v0.1
+    if (o.stack) return { stack: FX.normStack(o.stack), sourceId: o.sourceId || null, sig: o.sig || undefined };
+    if (o.effect) return { stack: FX.BY_ID[o.effect] ? FX.single(o.effect, o.values) : { entries: [] }, sourceId: o.sourceId || null };   // v0.2–0.3 (removed effects → empty)
+    if (o.depth !== undefined || o.material !== undefined) return { stack: FX.single("chromeExtrude", o), sourceId: null };            // v0.1
+    return null;
   } catch (e) { return null; }
 }
 async function readGroupParams(t) {
   for (const l of t.renderLayers || []) { const p = await readLayerParams(l.id); if (p) return p; }
+  // older groups whose layers aren't recognised yet: look at every child
+  if (t.group) for (const l of Array.from(t.group.layers)) { const p = await readLayerParams(l.id); if (p) return p; }
   return null;
+}
+// waits until the running Photoshop step is done (instead of silently ignoring a click)
+async function idleWithin(ms) { const end = Date.now() + ms; while (busy && Date.now() < end) await sleep(50); return !busy; }
+function needsRGB(doc) {
+  if (String(doc.mode).toLowerCase().indexOf("rgb") >= 0) return false;
+  setStatus("MS Render needs an RGB document – Image › Mode › RGB Color.", true);
+  return true;
 }
 
 // ---------------------------------------------------------------- reading the source
@@ -251,7 +276,7 @@ async function refreshPreviewSource() {
   const b = boundsOf(t.source);
   const bw = b.right - b.left, bh = b.bottom - b.top;
   if (bw <= 0 || bh <= 0) return;
-  const sig = sourceSignature(t.source);
+  const csig = contentSignature(t.source), sig = t.source.id + ":" + csig;
   if (previewSrc && previewSrc.sig === sig) { sendPreviewParams(); return; }
   const f = Math.min(1, 380 / bw, 200 / bh);
   try {
@@ -266,7 +291,7 @@ async function refreshPreviewSource() {
     wvPost({ cmd: "source", w: a.w, h: a.h, alpha: b64(a.alpha), rgb: b64(a.rgb) });
     sendPreviewParams();
     // thumbnails show the user's own text (re-render only when the text/shape changed)
-    const tsig = sig.replace(/^\[\d+,/, "[");
+    const tsig = csig;
     if (thumbSig !== tsig) { thumbSig = tsig; requestThumbs("all"); }
   } catch (e) {
     wvPost({ cmd: "clear", text: "Preview not possible: " + (e.message || e) });
@@ -535,7 +560,7 @@ async function renderInto(ctx, doc, t, p) {
   const made = {};
   const makeLayer = async (l) => {
     await selectLayer(source.id);
-    await batchPlay([{ _obj: "make", _target: [{ _ref: "layer" }], using: { _obj: "layer", name: FX.BY_ID[l.effect].name } }], {});
+    await batchPlay([{ _obj: "make", _target: [{ _ref: "layer" }], using: { _obj: "layer", name: renderLayerName(l.effect) } }], {});
     const rl = doc.activeLayers[0];
     if (l.w > 0 && l.h > 0) {
       const id = await imaging.createImageDataFromBuffer(fromBuf8(l.buf, doc), { width: l.w, height: l.h, components: 4, chunky: true, colorSpace: "RGB", colorProfile: "sRGB IEC61966-2.1" });
@@ -561,11 +586,12 @@ async function renderInto(ctx, doc, t, p) {
     await rl.move(anchor, constants.ElementPlacement.PLACEAFTER);
     anchor = rl;
   }
-  for (const uid of Object.keys(made)) await writeLayerParams(made[uid].id, p.stack, source.id);
+  const csig = contentSignature(source);
+  for (const uid of Object.keys(made)) await writeLayerParams(made[uid].id, p.stack, source.id, csig);
   groupSource.set(group.id, source.id);
   source.visible = res.sourceVisible;
   await selectLayer(group.id);
-  rendered.set(group.id, sourceSignature(source));
+  rendered.set(group.id, csig);
   const cropped = L.some((l) => l.cropped);
   log("  rendered", { stack: stackLabel(p.stack), group: group.name, layers: L.length, hidden: L.filter((l) => l.off).length, cropped });
   return { group, cropped, layers: L.length };
@@ -760,14 +786,15 @@ async function checkAutoUpdate() {
   const doc = app.activeDocument;
   const t = doc && resolveTarget(doc);
   if (!t || !t.group || !t.source || !t.renderLayers.length) return;
-  const last = rendered.get(t.group.id);
-  const sig = sourceSignature(t.source);
+  // the signature at render time lives in the group's XMP – after ⌘Z it matches again, so undo/redo stay intact
+  const saved = await readGroupParams(t);
+  if (!saved || !saved.stack || !saved.stack.entries.length) return;
+  const sig = contentSignature(t.source);
+  const last = saved.sig !== undefined ? saved.sig : rendered.get(t.group.id);
   if (last === undefined) { rendered.set(t.group.id, sig); return; }
-  if (sig !== last) {
+  if (sig !== last && !busy) {
     log("AUTO", { reason: "source changed" });
     // re-render with the stack stored in THIS group – the panel may show another layer's stack
-    const saved = await readGroupParams(t);
-    if (!saved) return;
     await applyRender("auto", { stack: saved.stack, expandCanvas: !!state.expandCanvas });
   }
 }
@@ -785,14 +812,13 @@ async function ejectForeignLayers() {
   if (!doc || busy) return false;
   const jobs = [];
   for (const g of renderGroupsIn(doc, [])) {
+    if (!groupSource.has(g.id)) {
+      const saved = await readGroupParams({ group: g, renderLayers: [] });
+      groupSource.set(g.id, saved && saved.sourceId ? saved.sourceId : -1);
+    }
     const parts = groupParts(g);
     if (!parts.renderLayers.length) continue;
-    if (!groupSource.has(g.id)) {
-      const saved = await readGroupParams(parts);
-      if (saved && saved.sourceId) groupSource.set(g.id, saved.sourceId);
-    }
-    const { foreign } = groupParts(g);
-    if (foreign.length) jobs.push({ g, foreign });
+    if (parts.ejectable.length) jobs.push({ g, foreign: parts.ejectable });
   }
   if (!jobs.length) return false;
   const selectedIds = doc.activeLayers.map((l) => l.id);
@@ -1038,7 +1064,7 @@ async function runSelfTest() {
         r.children = kids.map((l) => l.name);
         const { a, res } = await computeStack(doc, t.source, expect.stack);
         const exp = layersInDoc(doc, a, res, expect.stack);
-        const names = (z) => exp.filter((l) => l.zone === z).map((l) => FX.BY_ID[l.effect].name);
+        const names = (z) => exp.filter((l) => l.zone === z).map((l) => renderLayerName(l.effect));
         r.expected = names("above").concat(names("base"), [t.source.name], names("behind"));
         r.orderOk = JSON.stringify(r.children) === JSON.stringify(r.expected);
         r.sourceVisOk = t.source.visible === res.sourceVisible;
@@ -1267,7 +1293,7 @@ async function runSelfTest() {
       await removeRender();
       const groups = renderGroupsIn(doc, []).length;
       const src = doc.layers.find((l) => l.name.startsWith("RETRO"));
-      const renders = doc.layers.filter((l) => RENDER_NAMES.has(l.name)).length;
+      const renders = doc.layers.filter((l) => isRenderLayerName(l.name, false)).length;
       return { ok: groups === 0 && !!src && src.visible && renders === 0, groups, renders, sourceVisible: src && src.visible };
     });
     // ---- several texts in one document: a rendered group is final, new texts are independent
