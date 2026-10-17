@@ -5,9 +5,8 @@
 <p align="center">
   <b>Retro- und moderne 3D-Texteffekte für Photoshop: Chrome, Gold, Feuer, Blitze, Glow und vieles mehr.<br>
   Direkt aus deinem Live-Text gerendert, der Text bleibt bearbeitbar.</b><br>
-  <sub>Photoshop 2023 (24.2) oder neuer · UXP-Panel · aus der Familie von
-  <a href="https://github.com/M0rgenst3rn/ms-distress">MS Distress</a> und
-  <a href="https://github.com/M0rgenst3rn/ms-printer">MS Printer</a></sub>
+  <sub>Photoshop 2023 (24.2) oder neuer · UXP-Panel</sub><br>
+  <sub><b>MS</b> steht für <b>Morgenstern</b>: freie Photoshop-Tools · <a href="https://github.com/M0rgenst3rn/ms-distress">MS Distress</a> · <a href="https://github.com/M0rgenst3rn/ms-printer">MS Printer</a> · <b>MS Render</b></sub>
 </p>
 
 ---
@@ -197,5 +196,5 @@ Verbindung zu Adobe.
 
 ---
 
-<p align="center"><sub>MS Render<br>
+<p align="center"><sub>MS Render · ein Tool von <b>Morgenstern</b><br>
 Entwickelt von Linus Leinberger</sub></p>
