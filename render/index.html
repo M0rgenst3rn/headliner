@@ -2,84 +2,97 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="ms-ui.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="layout">
   <div class="top">
     <div class="header">
-      <span class="title"><b>MS</b> RENDER</span>
-      <span id="sourceName" class="layer-name">–</span>
+      <span class="brand"><span class="dot"></span><span class="brand-ms">MS</span><span class="brand-name">Render</span></span>
+      <span id="sourceName" class="target-name">–</span>
     </div>
-    <div class="subtitle">3D, light &amp; material effects for live text</div>
 
-    <div id="previewBox" class="preview-box"></div>
-    <div class="row between">
-      <select id="bg" class="bg-select">
-        <option value="0">Grey</option>
-        <option value="1">Dark</option>
-        <option value="4">Light</option>
-        <option value="3">White</option>
-        <option value="2">Transparent</option>
-      </select>
-      <label class="check live" title="Update the document while you change settings"><input type="checkbox" id="live"> Live</label>
-      <label class="check" title="Re-render automatically when the text changes"><input type="checkbox" id="autoUpdate"> Auto-update</label>
+    <div id="previewBox" class="preview render-preview"></div>
+    <div class="row between preview-under">
+      <div class="seg mini" id="bgSeg">
+        <div class="seg-btn" data-v="0" title="Grey background">Grey</div>
+        <div class="seg-btn" data-v="1" title="Dark background">Dark</div>
+        <div class="seg-btn" data-v="4" title="Light background">Light</div>
+        <div class="seg-btn" data-v="3" title="White background">White</div>
+        <div class="seg-btn" data-v="2" title="Transparent background">None</div>
+      </div>
+      <input type="text" id="bg" class="hidden" value="0">
     </div>
 
     <div class="actions">
-      <sp-button size="s" variant="cta" id="render">Apply</sp-button>
-      <sp-button size="s" variant="secondary" id="remove" title="Removes all effects – the original layer is back">Remove all</sp-button>
+      <div class="btn primary" id="render">Apply</div>
+      <div class="switch" data-for="live" title="Update the document while you change settings"><span class="knob"></span><span class="sw-label">Live</span></div>
+      <input type="checkbox" id="live" class="hidden">
+      <div class="btn ghost" id="remove" title="Removes all effects – the original layer is back">Remove</div>
     </div>
     <div id="status" class="status"></div>
+
     <div class="stack-head">
-      <span class="section-title">Stack <span id="stackInfo" class="stack-info"></span></span>
-      <sp-action-button size="s" quiet id="addFx" title="Add another effect: click this, then an effect below">+ Add effect</sp-action-button>
+      <span class="stack-title">Stack</span><span id="stackInfo" class="stack-info"></span>
+      <div class="btn small" id="addFx" title="Add another effect: click this, then an effect below">+ Add effect</div>
     </div>
     <div id="stackList" class="stack-list"></div>
   </div>
 
   <div class="scroller">
   <div class="wrap">
-    <div class="section first">
-      <div class="section-title">Effects</div>
-      <div id="fxGrid" class="fx-grid"></div>
+    <div class="sec" data-sec="effects">
+      <div class="sec-head"><span class="sec-title">Effects</span><span class="sec-meta">click to apply</span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>
+      <div class="sec-body"><div id="fxGrid" class="fx-grid"></div></div>
     </div>
 
-    <div class="section" id="lookSection">
-      <div class="section-title" id="lookTitle">Looks</div>
-      <div id="lookGrid" class="fx-grid"></div>
+    <div class="sec" data-sec="looks" id="lookSection">
+      <div class="sec-head"><span class="sec-title" id="lookTitle">Looks</span><span class="sec-meta"></span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>
+      <div class="sec-body"><div id="lookGrid" class="fx-grid"></div></div>
     </div>
 
-    <div class="section">
-      <div class="section-title">Combos</div>
-      <div id="comboGrid" class="fx-grid"></div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Settings</div>
-      <div class="effect-card">
-        <span class="effect-name" id="effectName">–</span>
-        <span class="effect-mode" id="effectMode"></span>
+    <div class="sec" data-sec="settings">
+      <div class="sec-head"><span class="sec-title">Settings</span><span id="effectName" class="sec-meta">–</span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>
+      <div class="sec-body">
+        <div id="effectMode" class="effect-mode"></div>
+        <div id="controls"></div>
+        <div class="hint" id="controlsHint"></div>
+        <div class="switch line" data-for="expandCanvas"><span class="knob"></span><span class="sw-label">Expand canvas when the effect doesn't fit</span></div>
+        <input type="checkbox" id="expandCanvas" class="hidden">
       </div>
-      <div id="controls"></div>
-      <div class="hint" id="controlsHint"></div>
-      <label class="check"><input type="checkbox" id="expandCanvas"> Expand canvas when the effect doesn't fit</label>
     </div>
 
-    <div class="section">
-      <div class="section-title">Export for print</div>
-      <div class="ctl"><span class="ctl-label">What</span><select id="expScope" class="grow"><option value="group">Selected group / layer</option><option value="all">All visible layers</option></select></div>
-      <div class="ctl"><span class="ctl-label">Print width</span><input id="expWidth" class="ctl-num wide" type="text" placeholder="as is"><span class="ctl-unit">cm</span></div>
-      <label class="check" title="DTF printers turn semi-transparent pixels (glows, soft shadows) into halftone fringes"><input type="checkbox" id="expHard"> Hard edges (DTF)</label>
-      <div class="row"><sp-button size="s" variant="primary" id="exportBtn">Export PNG…</sp-button></div>
-      <div class="hint">Transparent background, trimmed to the design, 300 dpi. Works on a copy – your document stays untouched.</div>
+    <div class="sec" data-sec="combos">
+      <div class="sec-head"><span class="sec-title">Combos</span><span class="sec-meta">several effects at once</span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>
+      <div class="sec-body"><div id="comboGrid" class="fx-grid"></div></div>
     </div>
 
-    <div class="section">
-      <div class="section-title">Tools</div>
-      <div class="row">
-        <sp-action-button size="s" quiet id="resetAll" title="Default settings for the selected effect">Reset settings</sp-action-button>
-        <sp-action-button size="s" quiet id="selfTest" title="Creates a test document and checks every effect">Self-test</sp-action-button>
+    <div class="sec" data-sec="export">
+      <div class="sec-head"><span class="sec-title">Export for print</span><span class="sec-meta">PNG, 300 dpi</span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>
+      <div class="sec-body">
+        <div class="field stack"><span class="field-label">What</span><div class="seg" id="expScopeSeg">
+          <div class="seg-btn" data-v="group">Selected layer</div>
+          <div class="seg-btn" data-v="all">All visible</div>
+        </div></div>
+        <input type="text" id="expScope" class="hidden" value="group">
+        <div class="row"><span class="field-label">Print width</span><input id="expWidth" class="num" type="text" placeholder="as is"><span class="muted">cm</span></div>
+        <div class="switch line" data-for="expHard" title="DTF printers turn semi-transparent pixels (glows, soft shadows) into halftone fringes"><span class="knob"></span><span class="sw-label">Hard edges (DTF)</span></div>
+        <input type="checkbox" id="expHard" class="hidden">
+        <div class="row"><div class="btn" id="exportBtn">Export PNG…</div></div>
+        <div class="hint">Transparent background, trimmed to the design, 300 dpi. Works on a copy – your document stays untouched.</div>
+      </div>
+    </div>
+
+    <div class="sec" data-sec="tools">
+      <div class="sec-head"><span class="sec-title">Tools</span><span class="sec-meta"></span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>
+      <div class="sec-body">
+        <div class="switch line" data-for="autoUpdate" title="Re-render automatically when the text changes"><span class="knob"></span><span class="sw-label">Update when the text changes</span></div>
+        <input type="checkbox" id="autoUpdate" class="hidden">
+        <div class="row tools-row">
+          <div class="btn small ghost" id="resetAll" title="Default settings for the selected effect">Reset settings</div>
+          <div class="btn small ghost" id="selfTest" title="Creates a test document and checks every effect">Self-test</div>
+        </div>
       </div>
     </div>
   </div>

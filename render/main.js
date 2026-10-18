@@ -9,6 +9,7 @@
 const { app, core, action, imaging, constants } = require("photoshop");
 const { batchPlay } = action;
 const FX = require("./effects.js");
+const UI = require("./ms-ui.js");
 const lfs = require("uxp").storage.localFileSystem;
 
 const $ = (id) => document.getElementById(id);
@@ -391,7 +392,7 @@ function buildGallery() {
 function buildLooks() {
   const grid = $("lookGrid"), fx = fxDef();
   grid.innerHTML = "";
-  $("lookSection").className = fx ? "section" : "section hidden";
+  $("lookSection").className = $("lookSection").className.replace(/ hidden/g, "") + (fx ? "" : " hidden");
   if (!fx) return;
   $("lookTitle").textContent = `${fx.name} looks`;
   for (const n of Object.keys(fx.presets || {})) grid.appendChild(tile("pr:" + fx.id + ":" + n, n, `${n} – click to apply`, () => applyPreset(n), "look"));
@@ -402,7 +403,7 @@ function markActive() {
   const fx = fxDef();
   $("effectName").textContent = fx ? fx.name : "No effect";
   $("effectMode").textContent = fx ? { replace: "replaces the look", behind: "behind the layer", above: "on top of the layer" }[fx.mode] : "";
-  $("addFx").className = addMode ? "add-on" : "";
+  $("addFx").className = addMode ? "btn small add-on" : "btn small";
 }
 // the stack changed: rebuild everything that depends on it
 function rebuildForStack() { buildStackList(); buildControls(); buildLooks(); markActive(); syncUI(); saveState(); requestThumbs("presets"); debouncedComboThumbs(); sendPreviewParams(); updatePendingUI(); }
@@ -872,34 +873,25 @@ async function ejectForeignLayers() {
   return true;
 }
 
-// ---------------------------------------------------------------- settings of the selected effect
+// ---------------------------------------------------------------- settings of the selected effect (Morgenstern-Design, ms-ui.js)
 function sliderRow(parent, c) {
-  const row = document.createElement("div");
-  row.className = "ctl";
-  row.innerHTML = `<span class="ctl-label">${esc(c.label)}</span><sp-slider class="ctl-range" min="${c.min}" max="${c.max}" step="${c.step}"></sp-slider><input class="ctl-num" type="text"><span class="ctl-unit">${c.unit || ""}</span>`;
-  parent.appendChild(row);
-  const range = row.querySelector(".ctl-range"), num = row.querySelector(".ctl-num");
-  const onRange = () => { setValues({ [c.key]: Number(range.value) }); num.value = String(curValues()[c.key]); changed(); };
-  range.addEventListener("input", onRange);
-  range.addEventListener("change", onRange);
-  num.addEventListener("change", () => {
-    let v = parseFloat(String(num.value).replace(",", "."));
-    if (isNaN(v)) v = curValues()[c.key];
-    setValues({ [c.key]: Math.max(c.min, Math.min(c.max, v)) });
-    syncUI(); changed();
+  const s = UI.slider(parent, { label: c.label, min: c.min, max: c.max, step: c.step, unit: c.unit || "", def: (fxDef() && fxDef().defaults || {})[c.key] }, {
+    get: () => curValues()[c.key],
+    set: (v) => { setValues({ [c.key]: v }); changed(); },
+    done: () => syncUI(),
   });
-  ctl[c.key] = { type: "slider", set: (v) => { range.value = String(v); num.value = String(v); } };
+  ctl[c.key] = { type: "slider", set: (v) => s.set(v) };
 }
 function selectRow(parent, c) {
-  const row = document.createElement("div");
-  row.className = "ctl";
-  row.innerHTML = `<span class="ctl-label">${esc(c.label)}</span><select class="grow">${c.options.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join("")}</select>`;
-  parent.appendChild(row);
-  const sel = row.querySelector("select");
-  sel.addEventListener("change", () => { setValues({ [c.key]: sel.value }); changed(); });
-  ctl[c.key] = { type: "select", set: (v) => { sel.value = v; } };
+  const field = document.createElement("div");
+  field.className = "field stack";
+  field.innerHTML = `<span class="field-label">${esc(c.label)}</span><div class="seg${c.options.length > 3 ? " wrap" : ""}"></div>`;
+  parent.appendChild(field);
+  const seg = field.querySelector(".seg");
+  UI.seg(seg, c.options, (v) => { setValues({ [c.key]: v }); UI.syncSeg(seg, v); changed(); });
+  ctl[c.key] = { type: "select", set: (v) => UI.syncSeg(seg, v) };
 }
-// ---- colour: swatch + hex field; clicking the swatch opens a colour wheel with a brightness slider
+// ---- colour: swatch + hex; clicking the swatch opens the palette and a colour wheel with a brightness slider
 function hexToRgb(h) { const n = parseInt(String(h).slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
 function rgbToHex(r, g, b) { return "#" + [r, g, b].map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join(""); }
 function hsvToRgb(h, s, v) {
@@ -913,21 +905,27 @@ function rgbToHsv(r, g, b) {
   if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
   return [(h * 60 + 360) % 360, mx ? d / mx : 0, mx];
 }
-let openWheel = null; // close function of the open colour wheel
+let openWheel = null; // close function of the open colour popover
 function colorRow(parent, c, allowEmpty) {
   const row = document.createElement("div");
-  row.className = "ctl color-ctl";
-  row.innerHTML = `<span class="ctl-label">${esc(c.label.replace(/\s*\(.*\)$/, ""))}</span><div class="swatch cur" title="Open colour wheel"></div><input class="hex" type="text" placeholder="${allowEmpty ? "layer" : ""}">` +
-    (allowEmpty ? `<sp-action-button size="s" quiet class="layer-col" title="Use the layer's own colour">Layer</sp-action-button>` : "");
+  row.className = "row";
+  row.innerHTML = `<span class="field-label">${esc(c.label.replace(/\s*\(.*\)$/, ""))}</span><div class="swatch cur" title="Choose a colour"></div><input class="hex" type="text" placeholder="${allowEmpty ? "layer" : ""}">` +
+    (allowEmpty ? `<div class="btn small ghost layer-col" title="Use the layer's own colour">Layer</div>` : "");
   parent.appendChild(row);
   const pop = document.createElement("div");
   pop.className = "wheel-pop hidden";
-  pop.innerHTML = `<div class="wheel"><img src="icons/wheel-10.png" alt=""><div class="dot"></div></div><div class="ctl"><span class="ctl-label">Brightness</span><sp-slider class="ctl-range" min="0" max="100" step="1"></sp-slider></div>`;
+  pop.innerHTML = `<div class="pal">${UI.PALETTE.map((h) => `<div class="pal-c" data-c="${h}" style="background-color:${h}"></div>`).join("")}</div>` +
+    `<div class="wheel"><img src="icons/wheel-10.png" alt=""><div class="wdot"></div></div><div class="bright"></div>` +
+    `<div class="pop-row"><div class="btn small pop-done">Done</div></div>`;
   parent.appendChild(pop);
   const cur = row.querySelector(".cur"), hex = row.querySelector(".hex");
-  const wheel = pop.querySelector(".wheel"), dot = pop.querySelector(".dot"), wheelImg = pop.querySelector(".wheel img"), bright = pop.querySelector("sp-slider");
+  const wheel = pop.querySelector(".wheel"), dot = pop.querySelector(".wdot"), wheelImg = pop.querySelector(".wheel img");
   let hsv = [0, 0, 1];
   const SIZE = 150;
+  const bright = UI.slider(pop.querySelector(".bright"), { label: "Brightness", min: 0, max: 100, step: 1, unit: "%", def: 100 }, {
+    get: () => Math.round(hsv[2] * 100),
+    set: (v) => { hsv[2] = v / 100; placeDot(); commitColor(); },
+  });
   const placeDot = () => {
     const r = hsv[1] * (SIZE / 2 - 1), a = hsv[0] * Math.PI / 180;
     dot.style.left = (SIZE / 2 + Math.cos(a) * r - 5) + "px";
@@ -936,23 +934,28 @@ function colorRow(parent, c, allowEmpty) {
     if (wheelImg.dataset.lv !== String(lv)) { wheelImg.dataset.lv = String(lv); wheelImg.src = `icons/wheel-${lv}.png`; }
     dot.style.backgroundColor = rgbToHex(...hsvToRgb(...hsv));
   };
-  const commitColor = () => { setValues({ [c.key]: rgbToHex(...hsvToRgb(...hsv)) }); syncUI(); changed(); };
+  const markPal = (v) => pop.querySelectorAll(".pal-c").forEach((el) => { el.className = el.getAttribute("data-c") === v ? "pal-c on" : "pal-c"; });
+  const commitColor = () => { const v = rgbToHex(...hsvToRgb(...hsv)); setValues({ [c.key]: v }); markPal(v); syncUI(); changed(); };
   const fromEvent = (e) => {
     const b = wheel.getBoundingClientRect();
     const dx = e.clientX - (b.left + b.width / 2), dy = e.clientY - (b.top + b.height / 2);
     hsv[0] = (Math.atan2(-dy, dx) * 180 / Math.PI + 360) % 360;
     hsv[1] = Math.min(1, Math.hypot(dx, dy) / (b.width / 2));
     if (hsv[2] < 0.05) hsv[2] = 1;   // picking a hue on a black colour should show it
-    placeDot(); commitColor();
+    placeDot(); bright.set(Math.round(hsv[2] * 100)); commitColor();
   };
   let down = false;
   wheel.addEventListener("mousedown", (e) => { down = true; fromEvent(e); });
   wheel.addEventListener("mousemove", (e) => { if (down && e.buttons !== 0) fromEvent(e); else down = false; });
   wheel.addEventListener("mouseup", () => { down = false; });
   wheel.addEventListener("mouseleave", () => { down = false; });
-  bright.addEventListener("input", () => { hsv[2] = Number(bright.value) / 100; placeDot(); commitColor(); });
-  const syncWheel = (v) => { if (v) { hsv = rgbToHsv(...hexToRgb(v)); bright.value = String(Math.round(hsv[2] * 100)); placeDot(); } };
+  const syncWheel = (v) => { if (v) { hsv = rgbToHsv(...hexToRgb(v)); bright.set(Math.round(hsv[2] * 100)); placeDot(); markPal(v); } };
+  pop.querySelectorAll(".pal-c").forEach((el) => el.addEventListener("click", () => {
+    const v = el.getAttribute("data-c");
+    setValues({ [c.key]: v }); syncWheel(v); syncUI(); changed();
+  }));
   const close = () => { pop.className = "wheel-pop hidden"; if (openWheel === close) openWheel = null; };
+  pop.querySelector(".pop-done").addEventListener("click", close);
   cur.addEventListener("click", () => {
     if (openWheel === close) return close();
     if (openWheel) openWheel();
@@ -972,7 +975,8 @@ function colorRow(parent, c, allowEmpty) {
     syncUI(); changed();
   });
   ctl[c.key] = { type: "color", set: (v) => {
-    hex.value = v || ""; cur.style.backgroundColor = v || "transparent"; cur.textContent = v ? "" : "T";
+    if (document.activeElement !== hex) hex.value = v || "";
+    cur.style.backgroundColor = v || "transparent"; cur.className = v ? "swatch cur" : "swatch cur empty";
     if (!pop.className.includes("hidden") && v && !down) syncWheel(v);
   } };
 }
@@ -1011,7 +1015,10 @@ function buildControls() {
   };
   $("controlsHint").textContent = hints[fx.id] || "Sizes in % of the text height, so a look scales with your text.";
 }
+const SEC_KEY = "msrender.sections.v1";
+const SEC_DEFAULT = { effects: true, looks: true, settings: true, combos: false, export: false, tools: false };
 function buildUI() {
+  UI.sections(SEC_KEY, SEC_DEFAULT);
   buildGallery();
   rebuildForStack();
   $("addFx").addEventListener("click", () => {
@@ -1019,12 +1026,18 @@ function buildUI() {
     markActive();
     setStatus(addMode ? "Click an effect below to add it to the stack." : "");
   });
-  $("expandCanvas").addEventListener("change", (e) => { state.expandCanvas = e.target.checked; saveState(); });
-  $("bg").addEventListener("change", () => sendPreviewParams());
+  UI.bindSwitch("expandCanvas", (on) => { state.expandCanvas = on; saveState(); });
+  document.querySelectorAll("#bgSeg .seg-btn").forEach((el) => el.addEventListener("click", () => {
+    $("bg").value = el.getAttribute("data-v"); UI.syncSeg($("bgSeg"), $("bg").value); sendPreviewParams();
+  }));
+  document.querySelectorAll("#expScopeSeg .seg-btn").forEach((el) => el.addEventListener("click", () => {
+    $("expScope").value = el.getAttribute("data-v"); UI.syncSeg($("expScopeSeg"), $("expScope").value);
+  }));
+  UI.bindSwitch("expHard");
   $("render").addEventListener("click", () => applyRender("manual"));
   $("remove").addEventListener("click", removeRender);
-  $("live").addEventListener("change", (e) => { liveLast = null; if (e.target.checked && liveTarget()) applyRender("live"); });
-  $("autoUpdate").addEventListener("change", (e) => { try { localStorage.setItem("msrender.auto", e.target.checked ? "1" : "0"); } catch (err) { /* ignore */ } });
+  UI.bindSwitch("live", (on) => { liveLast = null; if (on && liveTarget()) applyRender("live"); });
+  UI.bindSwitch("autoUpdate", (on) => { try { localStorage.setItem("msrender.auto", on ? "1" : "0"); } catch (err) { /* ignore */ } });
   $("resetAll").addEventListener("click", () => {
     const e = selEntry();
     if (!e) return;
@@ -1040,11 +1053,15 @@ function buildUI() {
   try { auto = localStorage.getItem("msrender.auto") || "1"; } catch (e) { /* ignore */ }
   $("autoUpdate").checked = auto === "1";
   $("bg").value = "0";
+  UI.syncSeg($("bgSeg"), "0");
+  UI.syncSeg($("expScopeSeg"), "group");
+  UI.syncSwitches();
 }
 function syncUI() {
   const v = curValues();
   for (const k of Object.keys(ctl)) ctl[k].set(v[k]);
   $("expandCanvas").checked = !!state.expandCanvas;
+  UI.syncSwitches();
 }
 function changed() {
   saveState();

@@ -1,135 +1,43 @@
-html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  overflow: hidden;
-  background-color: var(--uxp-host-background-color);
-  color: var(--uxp-host-text-color);
-  font-size: 11px;
-}
-/* Oberer Bereich (Vorschau + Buttons) bleibt stehen, nur der Rest scrollt */
-.layout { display: flex; flex-direction: column; height: 100%; }
-.top { flex-shrink: 0; padding: 6px 8px 4px; border-bottom: 1px solid var(--uxp-host-border-color); }
-.scroller { flex: 1; overflow-y: scroll; }
-.wrap { padding: 0 8px 24px; }
-.section.first { border-top: none; }
-.hidden { display: none; }
-.muted { opacity: 0.6; font-weight: normal; text-transform: none; letter-spacing: 0; }
+/* MS Render – Ergänzungen zum gemeinsamen Morgenstern-Design (ms-ui.css) */
+.render-preview { height: 190px; }
+.render-preview webview { width: 100%; height: 190px; border: none; }
+.preview-under { margin-top: 6px; }
 
-.header { display: flex; flex-direction: row; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-.title { font-size: 11px; letter-spacing: 2px; }
-.layer-name { opacity: 0.6; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Effekt-Kacheln: Klick = anwenden */
+.fx-grid { display: flex; flex-direction: row; flex-wrap: wrap; margin: 0 -3px; }
+.fx-tile { box-sizing: border-box; width: 47%; margin: 1.5%; padding: 3px; border: 1px solid #141b2c; border-radius: 8px; cursor: pointer; background-color: #0b0f1a; }
+.fx-tile:hover { border-color: #2a3a66; }
+.fx-tile.active { border-color: #2f5bff; background-color: #101a3a; }
+.fx-tile.adding { border-color: #7b9cff; border-style: dashed; }
+.fx-tile img { width: 100%; height: 66px; border-radius: 5px; background-color: #03050a; }
+.fx-tile .lbl { font-size: 10px; color: #a7b1ca; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 4px 0 1px; }
+.fx-tile.active .lbl { color: #ffffff; }
+.effect-mode { font-size: 10px; color: #7b9cff; margin: -4px 0 4px; }
 
-.preview-box {
-  height: 110px;
-  border: 1px solid var(--uxp-host-border-color);
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background-color: #1d1d1d;
-}
-.preview-box img { max-width: 100%; max-height: 108px; }
-.preview-msg { opacity: 0.6; padding: 6px; text-align: center; }
+/* Stapel der Effekte (immer oben sichtbar) */
+.stack-head { display: flex; flex-direction: row; align-items: center; margin-top: 10px; }
+.stack-title { font-size: 12px; font-weight: 600; color: #e6ebf7; }
+.stack-info { flex: 1; font-size: 10px; color: #7e89a6; padding-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stack-info.pending { color: #ffb35c; }
+#addFx.add-on { border-color: #2f5bff; background-color: #1b2a5c; color: #ffffff; }
+.stack-list { max-height: 112px; overflow-y: auto; margin: 6px 0 2px; }
+.stack-empty { font-size: 10px; color: #7e89a6; padding: 4px 2px; }
+.stack-row { display: flex; flex-direction: row; align-items: center; height: 26px; padding: 0 8px; border-radius: 7px; margin-bottom: 3px; background-color: #0d1220; border: 1px solid #141b2c; }
+.stack-row.sel { border-color: #2f5bff; background-color: #101a3a; }
+.stack-row.off .nm { color: #5d6884; text-decoration: line-through; }
+.stack-row .eye { width: 16px; font-size: 10px; cursor: pointer; color: #7b9cff; }
+.stack-row .nm { flex: 1; font-size: 11px; cursor: pointer; color: #e6ebf7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stack-row.sel .nm { font-weight: 600; }
+.stack-row .zone { font-size: 10px; color: #7e89a6; margin-right: 6px; cursor: pointer; }
+.stack-row .bt { width: 16px; text-align: center; font-size: 9px; cursor: pointer; color: #a7b1ca; }
+.stack-row .bt.dis { color: #2a3554; cursor: default; }
+.stack-row .rm:hover { color: #ff8a9a; }
 
-.section { border-top: 1px solid var(--uxp-host-border-color); margin-top: 6px; padding-top: 5px; }
-.section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; margin-bottom: 3px; }
-
-.row { display: flex; flex-direction: row; align-items: center; margin: 2px 0; }
-.row > * { margin-right: 4px; }
-.row.between { justify-content: space-between; }
-.row.two > * { flex: 1; }
-.grow { flex: 1; }
-
-.tex-grid { display: flex; flex-direction: row; flex-wrap: wrap; margin: 0 -1px 2px; }
-.tile {
-  width: 42px;
-  margin: 1px;
-  padding: 1px;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  cursor: pointer;
-}
-.tile:hover { border-color: var(--uxp-host-border-color); }
-.tile.active { border-color: #2d9cdb; background-color: rgba(45, 156, 219, 0.15); }
-.tile img, .tile .ph { width: 38px; height: 38px; border-radius: 2px; background-color: #333; }
-.tile .lbl { font-size: 8px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* Regler: Label | Slider | Zahl in einer Zeile */
-.ctl { display: flex; flex-direction: row; align-items: center; height: 24px; }
-.ctl-label { width: 88px; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ctl-range { flex: 1; margin: 0 4px; }
-.ctl-num { width: 38px; text-align: right; font-size: 10px; }
-.ctl-unit { width: 16px; opacity: 0.6; padding-left: 2px; font-size: 10px; }
-
-select { width: 100%; }
-.check { display: flex; flex-direction: row; align-items: center; margin: 2px 0; font-size: 10px; }
-
-.check.live { font-weight: bold; }
-.swatch { width: 22px; height: 18px; border-radius: 2px; border: 1px solid var(--uxp-host-border-color); cursor: pointer; }
-.hex { width: 64px; font-size: 10px; }
-.seed { width: 64px; font-size: 10px; }
-.hint { font-size: 9px; opacity: 0.6; margin: 2px 0 4px; }
-
-.actions { display: flex; flex-direction: row; margin-top: 4px; }
-.actions > * { margin-right: 6px; }
-.status { margin-top: 3px; min-height: 12px; font-size: 10px; opacity: 0.85; }
-.status.err { color: #ff6b6b; opacity: 1; }
-
-.tile .ph.add { display: flex; align-items: center; justify-content: center; font-size: 20px; background-color: transparent; border: 1px dashed var(--uxp-host-border-color); box-sizing: border-box; }
-.sub { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--uxp-host-border-color); }
-
-/* MS Render – modern & minimal: neutral greys, one quiet accent */
-.title b { color: #f2f2f2; }
-.title { opacity: 0.9; }
-.section-title { color: var(--uxp-host-text-color); opacity: 0.55; font-weight: normal; letter-spacing: 1.5px; font-size: 9px; }
-.section { border-top-color: rgba(128, 128, 128, 0.25); }
-.subtitle { font-size: 10px; opacity: 0.5; margin: -2px 0 5px; }
-.preview-box { height: 190px; background-color: #262626; border: none; border-radius: 6px; }
-.preview-box webview { width: 100%; height: 190px; border: none; }
-.bg-select { width: 110px; }
-.effect-card { display: flex; flex-direction: row; align-items: baseline; justify-content: space-between; padding: 2px 0; margin: 0 0 4px; }
-.effect-name { font-weight: bold; font-size: 12px; }
-.effect-mode { font-size: 9px; opacity: 0.5; }
-
-/* Effect gallery: thumbnail tiles, click = apply */
-.fx-grid { display: flex; flex-direction: row; flex-wrap: wrap; margin: 0 -3px 2px; }
-.fx-tile { width: 98px; margin: 3px; padding: 0; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
-.fx-tile:hover { border-color: rgba(255, 255, 255, 0.25); }
-.fx-tile.active { border-color: #e8e8e8; }
-.fx-tile img { width: 96px; height: 60px; border-radius: 5px; background-color: #2a2a2a; }
-.fx-tile .lbl { font-size: 9px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 2px 0 3px; opacity: 0.7; }
-.fx-tile.active .lbl { opacity: 1; font-weight: bold; }
-
-/* colour control: swatch + hex, wheel pops open below */
-.color-ctl { height: 26px; }
-.color-ctl .swatch.cur { width: 22px; height: 18px; margin-right: 6px; font-size: 9px; text-align: center; border-radius: 4px; cursor: pointer; }
-.color-ctl .hex { width: 70px; font-size: 10px; }
-.wheel-pop { padding: 6px 0 8px 88px; }
-.wheel-pop.hidden { display: none; }
-.wheel { position: relative; width: 150px; height: 150px; margin-bottom: 4px; cursor: crosshair; }
+/* Farbe: Feld + Hex; darunter Palette und Farbkreis */
+.wheel-pop { margin: 2px 0 10px; padding: 10px; border-radius: 10px; background-color: #0d1220; border: 1px solid #263256; }
+.wheel { position: relative; width: 150px; height: 150px; margin: 8px auto 2px; cursor: crosshair; }
 .wheel img { position: absolute; left: 0; top: 0; width: 150px; height: 150px; }
-.wheel .dot { position: absolute; width: 10px; height: 10px; border-radius: 6px; border: 2px solid #fff; box-sizing: border-box; }
-.wheel-pop .ctl-label { width: 60px; }
+.wheel .wdot { position: absolute; width: 10px; height: 10px; border-radius: 6px; border: 2px solid #fff; box-sizing: border-box; }
+.swatch.empty { background-color: transparent; border-style: dashed; }
 
-/* effect stack (always visible in the top area) */
-.stack-head { display: flex; flex-direction: row; align-items: center; justify-content: space-between; margin-top: 4px; }
-.stack-head .section-title { margin: 0; }
-#addFx.add-on { background-color: rgba(255, 255, 255, 0.18); border-radius: 4px; }
-.stack-list { max-height: 112px; overflow-y: auto; margin: 2px 0 2px; }
-.stack-empty { font-size: 10px; opacity: 0.5; padding: 4px 2px; }
-.stack-row { display: flex; flex-direction: row; align-items: center; height: 22px; padding: 0 4px; border-radius: 4px; margin-bottom: 1px; background-color: rgba(255, 255, 255, 0.04); }
-.stack-row.sel { background-color: rgba(255, 255, 255, 0.16); }
-.stack-row.off .nm { opacity: 0.4; text-decoration: line-through; }
-.stack-row .eye { width: 16px; font-size: 11px; cursor: pointer; opacity: 0.85; }
-.stack-row .nm { flex: 1; font-size: 11px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stack-row.sel .nm { font-weight: bold; }
-.stack-row .zone { font-size: 9px; opacity: 0.5; margin-right: 6px; cursor: pointer; }
-.stack-row .bt { width: 16px; text-align: center; font-size: 9px; cursor: pointer; opacity: 0.7; }
-.stack-row .bt.dis { opacity: 0.15; cursor: default; }
-.stack-row .rm { font-size: 10px; }
-.fx-tile.adding { border-color: rgba(255, 255, 255, 0.35); border-style: dashed; }
-.ctl-num.wide { width: 60px; text-align: left; }
-.stack-info { font-size: 9px; letter-spacing: 0; text-transform: none; opacity: 0.6; margin-left: 6px; font-weight: normal; }
-.stack-info.pending { opacity: 1; color: #ffb35c; }
+.hidden, .sec.hidden, .wheel-pop.hidden, .row.hidden { display: none; }

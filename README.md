@@ -82,7 +82,7 @@ So baust du einen Stapel:
 | **⌥-Klick** auf einen Effekt | Tauscht nur den ausgewählten Eintrag aus |
 | **Combo anklicken** | Ersetzt die Effekte um deinen Look. **Der Look bleibt** |
 | **✕** an einem Eintrag | Entfernt nur diesen Eintrag |
-| **Remove all** | Entfernt alle Effekte, die Original-Ebene steht wieder allein da |
+| **Remove** | Entfernt alle Effekte, die Original-Ebene steht wieder allein da |
 | **⌘Z** | Macht jeden Schritt rückgängig, wie gewohnt |
 
 ## 15 Combos
@@ -149,7 +149,7 @@ Das Skript braucht [Node.js](https://nodejs.org) für den Bundle-Schritt der Vor
    *„MS Render · …“* mit deiner Ebene und einer Ebene pro Effekt
 3. **Anpassen**: Feinschliff unter *Settings* oder durch Ziehen in der Vorschau, dann **Update**
    - **Live** überträgt Änderungen sofort
-   - **Auto-update** rechnet neu, sobald du den Text änderst
+   - **Update when the text changes** (unter *Tools*) rechnet neu, sobald du den Text änderst
 4. **Weitere Texte**: Jeder Text bekommt seine eigene Gruppe. Ein fertig gerenderter Text bleibt, wie er ist
 5. **Später wieder bearbeiten**: Gruppe auswählen, das Panel lädt ihren Stapel mit allen Einstellungen
 6. **Exportieren**: unter *Export for print*

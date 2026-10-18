@@ -1,0 +1,196 @@
+/* Morgenstern-Design – gemeinsam für alle MS-Werkzeuge (passt zu ms-ui.js)
+   Ruhig, dunkel, präzise – und genau eine Farbe, die leuchtet: ein tiefes, elektrisches Blau.
+   Grund      #070a12   Fläche  #0d1220   Linie  #1e2740
+   Text       #e6ebf7   Text 2  #a7b1ca   gedämpft  #7e89a6
+   Akzent     #2f5bff   Akzent hell #7b9cff
+   Abstände im 4-px-Raster. Eine Schriftfamilie (Systemschrift), Hierarchie über Gewicht und Größe. */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background-color: #070a12;
+  color: #e6ebf7;
+  font-family: -apple-system, "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 11px;
+}
+.layout { display: flex; flex-direction: column; height: 100%; }
+.top { flex-shrink: 0; padding: 12px 14px 10px; background-color: #070a12; border-bottom: 1px solid #141b2c; }
+.scroller { flex: 1; overflow-y: scroll; }
+.wrap { padding: 2px 14px 32px; }
+.grow { flex: 1; }
+b, strong { font-weight: 600; color: #e6ebf7; }
+
+/* ---------- Kopf */
+.header { display: flex; flex-direction: row; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.brand { display: flex; flex-direction: row; align-items: center; }
+.dot { width: 8px; height: 8px; border-radius: 4px; background-color: #2f5bff; border: 1px solid #7b9cff; margin-right: 8px; box-shadow: 0 0 10px rgba(47, 91, 255, 0.9); }
+.brand-ms { font-size: 12px; font-weight: bold; letter-spacing: 1px; color: #7b9cff; margin-right: 5px; }
+.brand-name { font-size: 12px; font-weight: 600; color: #e6ebf7; }
+.target-name { color: #7e89a6; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+
+/* ---------- Vorschau */
+.preview {
+  position: relative;
+  height: 178px;
+  border: 1px solid #1a2236;
+  border-radius: 10px;
+  background-color: #03050a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.preview img { max-width: 100%; max-height: 176px; }
+.preview-msg { color: #7e89a6; padding: 10px; text-align: center; }
+.preview-tools { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-direction: row; justify-content: space-between; align-items: center; }
+.preview-tools > * { margin-left: 6px; }
+.preview-tools > *:first-child { margin-left: 0; }
+
+/* ---------- Segmente */
+.seg { display: flex; flex-direction: row; padding: 2px; border-radius: 8px; background-color: #0d1220; border: 1px solid #1a2236; }
+.seg-btn { flex: 1; text-align: center; font-size: 11px; padding: 5px 8px; border-radius: 6px; cursor: pointer; color: #a7b1ca; }
+.seg-btn:hover { color: #e6ebf7; }
+.seg-btn.active { background-color: #1b2a5c; color: #ffffff; }
+.seg.target { margin-top: 10px; }
+.seg.target .seg-btn { padding: 7px 8px; font-weight: 600; }
+.seg.target .seg-btn.active { background-color: #2f5bff; }
+.seg.mini { background-color: rgba(7, 10, 18, 0.82); border-color: #232d48; }
+.seg.mini .seg-btn { padding: 3px 8px; font-size: 10px; }
+/* viele Optionen: umbrechende Auswahl statt Ausklappliste */
+.seg.wrap { flex-wrap: wrap; }
+.seg.wrap .seg-btn { flex: 0 0 auto; padding: 5px 9px; margin: 1px; }
+
+.target-info { font-size: 10px; color: #7b9cff; padding: 6px 2px 0; }
+
+/* ---------- Schalter */
+.switch { display: flex; flex-direction: row; align-items: center; cursor: pointer; padding: 4px 8px 4px 4px; border-radius: 14px; border: 1px solid #1e2740; background-color: #0d1220; }
+.switch .knob { width: 22px; height: 12px; border-radius: 6px; background-color: #1e2740; border: 1px solid #2a3554; position: relative; margin-right: 6px; flex-shrink: 0; }
+.switch .knob::after { content: ""; position: absolute; top: 1px; left: 1px; width: 10px; height: 10px; border-radius: 5px; background-color: #7e89a6; }
+.switch .sw-label { font-size: 11px; color: #a7b1ca; }
+.switch.on { border-color: #2f5bff; }
+.switch.on .knob { background-color: #2f5bff; border-color: #7b9cff; }
+.switch.on .knob::after { left: 11px; background-color: #ffffff; }
+.switch.on .sw-label { color: #ffffff; }
+.switch.small { padding: 3px 7px 3px 3px; background-color: rgba(7, 10, 18, 0.82); border-color: #232d48; }
+.switch.small .sw-label { font-size: 10px; }
+/* Schalter als Zeile in einem Bereich: ohne Rahmen, Text links, Knopf rechts */
+.switch.line { justify-content: space-between; flex-direction: row-reverse; border: none; background-color: transparent; padding: 6px 0; border-radius: 0; }
+.switch.line .knob { margin-right: 0; margin-left: 8px; }
+.switch.line.on .sw-label { color: #e6ebf7; }
+
+/* ---------- Knöpfe */
+.btn { text-align: center; font-size: 11px; padding: 8px 12px; border-radius: 8px; cursor: pointer; border: 1px solid #1e2740; background-color: #0d1220; color: #e6ebf7; }
+.btn:hover { border-color: #3a4a78; }
+.btn:active { opacity: 0.85; }
+.btn.primary { flex: 1; background-color: #2f5bff; border-color: #7b9cff; color: #ffffff; font-weight: 600; box-shadow: 0 0 16px rgba(47, 91, 255, 0.55); }
+.btn.primary:hover { background-color: #3d68ff; }
+.btn.ghost { background-color: transparent; color: #a7b1ca; }
+.btn.small { font-size: 10px; padding: 5px 9px; border-radius: 7px; }
+.btn.disabled { opacity: 0.4; }
+
+.actions { display: flex; flex-direction: row; align-items: center; margin-top: 10px; }
+.actions > * { margin-right: 8px; }
+.actions > *:last-child { margin-right: 0; }
+.status { margin-top: 6px; min-height: 14px; font-size: 10px; color: #a7b1ca; }
+.status.err { color: #ff8a9a; }
+
+/* ---------- Regler */
+.sl { padding: 5px 0 7px; }
+.sl-head { display: flex; flex-direction: row; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+.sl-label { font-size: 11px; color: #a7b1ca; }
+.sl-val { display: flex; flex-direction: row; align-items: center; }
+.sl-num { width: 38px; text-align: right; font-size: 11px; color: #e6ebf7; background-color: transparent; border: 1px solid transparent; border-radius: 4px; padding: 0 2px; }
+.sl-num:hover { border-color: #1e2740; }
+.sl-num:focus { border-color: #2f5bff; background-color: #0d1220; }
+.sl-unit { width: 14px; color: #7e89a6; font-size: 10px; padding-left: 2px; }
+.sl-track { position: relative; height: 14px; margin: 0 5px; cursor: pointer; }
+.sl-rail { position: absolute; left: 0; right: 0; top: 6px; height: 2px; border-radius: 1px; background-color: #1e2740; }
+.sl-fill { position: absolute; top: 6px; height: 2px; border-radius: 1px; background-color: #2f5bff; box-shadow: 0 0 8px rgba(47, 91, 255, 0.8); }
+.sl-thumb { position: absolute; top: 2px; width: 10px; height: 10px; margin-left: -5px; border-radius: 5px; background-color: #e6ebf7; border: 1px solid #7b9cff; }
+.sl:hover .sl-label { color: #e6ebf7; }
+.sl.dragging .sl-thumb { background-color: #ffffff; box-shadow: 0 0 10px rgba(123, 156, 255, 0.9); }
+.sl.dragging .sl-label { color: #ffffff; }
+.strength { margin-top: 8px; }
+.strength .sl-label { color: #e6ebf7; font-weight: 600; }
+
+/* Unter-Einstellungen: eingerückt auf getönter Fläche */
+.sl.sub, .row.sub, .field.sub { margin-left: 10px; padding-left: 10px; padding-right: 8px; background-color: #0b1020; border-radius: 6px; }
+.row.sub, .field.sub { padding-top: 5px; padding-bottom: 5px; margin-top: 2px; margin-bottom: 4px; }
+.subgroup { margin: 4px 0 6px 10px; padding: 2px 8px 4px 10px; background-color: #0b1020; border-radius: 6px; }
+
+/* Gruppe mit Schalter im Kopf (z. B. Toner / Aussetzer): ein Kasten, keine verschachtelten Karten */
+.group { margin: 6px 0 8px; padding: 2px 10px 6px; border-radius: 8px; border: 1px solid #141b2c; }
+.group-head { display: flex; flex-direction: row; align-items: center; }
+.group-head > * { margin-right: 8px; }
+.group-head > *:last-child { margin-right: 0; }
+.group-note { font-size: 10px; color: #7e89a6; }
+
+/* ---------- Bereiche */
+.sec { border-top: 1px solid #121928; }
+.sec:first-child { border-top: none; }
+.sec-head { display: flex; flex-direction: row; align-items: center; padding: 12px 0 10px; cursor: pointer; }
+.sec-title { font-size: 12px; font-weight: 600; color: #e6ebf7; }
+.sec-meta { flex: 1; font-size: 10px; color: #7e89a6; padding-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chev { width: 16px; text-align: center; font-size: 13px; color: #7b9cff; }
+.sec-head:hover .sec-title { color: #ffffff; }
+.sec .sec-body, .sec .c-open { display: none; }
+.sec.open .sec-body { display: block; padding-bottom: 12px; }
+.sec.open .c-open { display: block; }
+.sec.open .c-closed { display: none; }
+
+/* ---------- Zeilen und Felder */
+.row, .field { display: flex; flex-direction: row; align-items: center; margin: 4px 0; }
+.row > *, .field > * { margin-right: 8px; }
+.row > *:last-child, .field > *:last-child { margin-right: 0; }
+.row.between { justify-content: space-between; }
+.field { padding-top: 4px; }
+.field .seg-btn, .row .seg-btn { white-space: nowrap; padding: 5px 6px; }
+.field-label { width: 64px; flex-shrink: 0; font-size: 11px; color: #a7b1ca; }
+.field.stack { flex-direction: column; align-items: stretch; }
+.field.stack > * { margin-right: 0; }
+.field.stack .field-label { width: auto; margin-bottom: 6px; }
+.tools-row { flex-wrap: wrap; }
+.tools-row > * { margin-bottom: 4px; }
+
+/* ---------- Kacheln (Looks, Texturen, Effekte) */
+.tiles { display: flex; flex-direction: row; flex-wrap: wrap; margin: 0 -3px; }
+.tile, .look { box-sizing: border-box; width: 31.3%; margin: 1%; padding: 3px; border: 1px solid #141b2c; border-radius: 8px; cursor: pointer; background-color: #0b0f1a; }
+.tile:hover, .look:hover { border-color: #2a3a66; }
+.tile.active, .look.active { border-color: #2f5bff; background-color: #101a3a; }
+.tile img, .tile .ph, .look img, .look .ph { width: 100%; height: 46px; border-radius: 5px; background-color: #03050a; }
+.tile .lbl, .look .lbl { font-size: 10px; color: #a7b1ca; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 4px 0 1px; }
+.tile.active .lbl, .look.active .lbl { color: #ffffff; }
+.look-grid { display: flex; flex-direction: row; flex-wrap: wrap; margin: 0 -3px; }
+
+/* ---------- Farben */
+.swatch-wrap { display: flex; flex-direction: row; align-items: center; }
+.swatch { width: 20px; height: 20px; border-radius: 10px; border: 1px solid #3a4565; cursor: pointer; margin-right: 6px; flex-shrink: 0; }
+.hex-label { font-size: 10px; color: #7e89a6; }
+.color-pop { margin: 4px 0 10px; padding: 10px; border-radius: 10px; background-color: #0d1220; border: 1px solid #263256; }
+.pal { display: flex; flex-direction: row; flex-wrap: wrap; margin: -2px; }
+.pal-c { width: 20px; height: 20px; border-radius: 10px; margin: 3px; cursor: pointer; border: 1px solid rgba(255, 255, 255, 0.12); }
+.pal-c.on { border: 2px solid #ffffff; }
+.pop-row { display: flex; flex-direction: row; align-items: center; margin-top: 8px; }
+.pop-row > * { margin-right: 6px; }
+
+/* ---------- Eingaben */
+input[type="text"] { background-color: #0d1220; color: #e6ebf7; border: 1px solid #1e2740; border-radius: 6px; font-size: 11px; padding: 4px 6px; }
+input[type="text"]:focus { border-color: #2f5bff; }
+.hex { width: 70px; }
+.num { width: 64px; }
+
+/* ---------- Presets */
+.preset-list { margin-bottom: 6px; }
+.preset { display: flex; flex-direction: row; align-items: center; padding: 6px 8px; margin: 3px 0; border-radius: 7px; background-color: #0d1220; border: 1px solid #141b2c; }
+.preset:hover { border-color: #2a3a66; }
+.preset-name { flex: 1; cursor: pointer; color: #e6ebf7; }
+.preset-del { width: 16px; text-align: center; cursor: pointer; color: #7e89a6; font-size: 13px; }
+.preset-del:hover { color: #ff8a9a; }
+.empty { color: #7e89a6; font-size: 10px; padding: 4px 0 6px; }
+.hint { font-size: 10px; color: #7e89a6; margin: 10px 0 2px; line-height: 15px; }
+.muted { color: #7e89a6; }
+
+/* ---------- ausgeblendet (am Ende, spezifisch genug für alle Elemente oben) */
+.hidden, .row.hidden, .sl.hidden, .field.hidden, .group.hidden, .subgroup.hidden, .swatch-wrap.hidden, .color-pop.hidden, .btn.hidden, .switch.hidden, .seg.hidden, .preview img.hidden, .preview-msg.hidden, input.hidden { display: none; }
