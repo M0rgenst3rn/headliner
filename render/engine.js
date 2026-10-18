@@ -68,13 +68,14 @@ function params(p) {
 
 // ---------------------------------------------------------------- distance fields
 const INF = 1e20;
-function edt(w, h, seedIsZero) {
-  const N = w * h, M = Math.max(w, h);
+// Felzenszwalb & Huttenlocher squared distance transform, run over columns, then rows. f holds the start
+// values (0 = seed, INF = not a seed). With ids, it also carries the index of the nearest seed along.
+function edtCore(w, h, g, ids) {
+  const M = Math.max(w, h);
   const f = new Float64Array(M), d = new Float64Array(M), v = new Int32Array(M), z = new Float64Array(M + 1);
-  const g = new Float64Array(N);
-  for (let i = 0; i < N; i++) g[i] = seedIsZero(i) ? 0 : INF;
+  const fid = ids ? new Int32Array(M) : null, did = ids ? new Int32Array(M) : null;
   const pass = (n, base, stride) => {
-    for (let q = 0; q < n; q++) f[q] = g[base + q * stride];
+    for (let q = 0; q < n; q++) { f[q] = g[base + q * stride]; if (ids) fid[q] = ids[base + q * stride]; }
     let k = 0; v[0] = 0; z[0] = -INF; z[1] = INF;
     for (let q = 1; q < n; q++) {
       let s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
@@ -82,16 +83,99 @@ function edt(w, h, seedIsZero) {
       k++; v[k] = q; z[k] = s; z[k + 1] = INF;
     }
     k = 0;
-    for (let q = 0; q < n; q++) { while (z[k + 1] < q) k++; d[q] = (q - v[k]) * (q - v[k]) + f[v[k]]; }
-    for (let q = 0; q < n; q++) g[base + q * stride] = d[q];
+    for (let q = 0; q < n; q++) { while (z[k + 1] < q) k++; d[q] = (q - v[k]) * (q - v[k]) + f[v[k]]; if (ids) did[q] = fid[v[k]]; }
+    for (let q = 0; q < n; q++) { g[base + q * stride] = d[q]; if (ids) ids[base + q * stride] = did[q]; }
   };
   for (let x = 0; x < w; x++) pass(h, x, w);
   for (let y = 0; y < h; y++) pass(w, y * w, 1);
+}
+// Distance from every pixel to the nearest pixel for which seedIsZero(i) is true (whole pixels).
+function edt(w, h, seedIsZero) {
+  const N = w * h, g = new Float64Array(N);
+  for (let i = 0; i < N; i++) g[i] = seedIsZero(i) ? 0 : INF;
+  edtCore(w, h, g, null);
   const out = new Float32Array(N);
   for (let i = 0; i < N; i++) out[i] = Math.sqrt(g[i]);
   return out;
 }
 
+// Distance from a pixel centre to the edge of an anti-aliased shape, from the pixel's coverage a (0..1) and
+// the direction (gx, gy) towards the outside. Positive when the centre lies outside the edge.
+function edgeDist(gx, gy, a) {
+  if (gx === 0 || gy === 0) return 0.5 - a;
+  const gl = Math.sqrt(gx * gx + gy * gy);
+  gx = Math.abs(gx / gl); gy = Math.abs(gy / gl);
+  if (gx < gy) { const t = gx; gx = gy; gy = t; }
+  const a1 = 0.5 * gy / gx;
+  if (a < a1) return 0.5 * (gx + gy) - Math.sqrt(2 * gx * gy * a);
+  if (a < 1 - a1) return (0.5 - a) * gx;
+  return -0.5 * (gx + gy) + Math.sqrt(2 * gx * gy * (1 - a));
+}
+// Signed distance to the edge of a shape (negative inside), with sub-pixel precision: the soft edge pixels
+// of the coverage say where the edge runs inside them. cov: Uint8Array (0..255, k = 1/255) or Float32Array
+// (0..1, k = 1). One distance transform over the pixels along the edge, then each pixel measures to the
+// edge inside its nearest edge pixel.
+function signedDist(cov, w, h, k) {
+  const N = w * h, A = new Float32Array(N);
+  for (let i = 0; i < N; i++) { const a = cov[i] * k; A[i] = a < 0.002 ? 0 : a > 0.998 ? 1 : a; }
+  const g = new Float64Array(N), ids = new Int32Array(N);
+  let seeds = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, a = A[i];
+    let edge = a > 0 && a < 1;
+    if (!edge) {
+      // a whole pixel right at a hard edge (a soft edge pixel next to it is the better seed)
+      for (let dy = -1; dy <= 1 && !edge; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+        const b = A[yy * w + xx];
+        if (a === 1 ? b === 0 : b === 1) { edge = true; break; }
+      }
+    }
+    g[i] = edge ? 0 : INF; ids[i] = edge ? i : -1;
+    if (edge) seeds++;
+  }
+  const S = new Float32Array(N);
+  if (!seeds) { const v = A[0] === 1 ? -1e6 : 1e6; S.fill(v); return S; }
+  edtCore(w, h, g, ids);
+  // each edge pixel: outward direction (coverage gradient) and the point where the edge crosses it
+  const at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? 0 : A[y * w + x]);
+  const enx = new Float32Array(N), eny = new Float32Array(N), edf = new Float32Array(N);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (g[i] !== 0) continue;
+    const gx = (at(x - 1, y - 1) + 1.41421356 * at(x - 1, y) + at(x - 1, y + 1)) - (at(x + 1, y - 1) + 1.41421356 * at(x + 1, y) + at(x + 1, y + 1));
+    const gy = (at(x - 1, y - 1) + 1.41421356 * at(x, y - 1) + at(x + 1, y - 1)) - (at(x - 1, y + 1) + 1.41421356 * at(x, y + 1) + at(x + 1, y + 1));
+    const gl = Math.sqrt(gx * gx + gy * gy), df = edgeDist(gx, gy, A[i]);
+    edf[i] = df;
+    if (gl > 1e-6) { enx[i] = gx / gl; eny[i] = gy / gl; }
+  }
+  // distance to a short piece of the edge (half length TAU along the edge) at the nearest edge pixel:
+  // exact for straight edges, round around corners, and the direction turns smoothly along curves
+  const TAU = 0.6;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, q = ids[i], a = A[i];
+    let d;
+    if (q === i) d = edf[i];
+    else {
+      const qx = q % w, qy = (q - qx) / w, dx = x - qx, dy = y - qy;
+      let dist;
+      if (enx[q] !== 0 || eny[q] !== 0) {
+        // offset from the edge point (q's centre moved by its edge distance against the outward direction)
+        const rx = dx + enx[q] * edf[q], ry = dy + eny[q] * edf[q];
+        const l = rx * enx[q] + ry * eny[q], t = Math.max(0, Math.abs(ry * enx[q] - rx * eny[q]) - TAU);
+        dist = Math.sqrt(l * l + t * t);
+      } else {
+        // no direction (a lone pixel): the edge lies (0.5 - a) beyond its centre
+        const di = Math.sqrt(dx * dx + dy * dy);
+        dist = a === 1 ? di + edgeDist(dx, dy, 1 - A[q]) : di + edgeDist(dx, dy, A[q]);
+      }
+      d = a === 1 ? -dist : dist;
+    }
+    S[i] = d;
+  }
+  return S;
+}
 function blur(src, w, h, r) {
   r = Math.max(1, Math.round(r));
   const N = w * h, tmp = new Float32Array(N), out = new Float32Array(src);
@@ -152,15 +236,54 @@ function pad(alpha0, w0, h0, l, t, r, b) {
 }
 
 // Distance fields for one source (independent of most parameters; reused by preview and render).
+// s: signed distance to the edge (negative inside), sub-pixel accurate. dIn / dOut keep their meaning
+// (distance to the nearest pixel on the other side, so 1 for a pixel right at a hard edge), but they now
+// change smoothly with the soft edge pixels instead of jumping in whole pixels.
 function fields(alpha, w, h, textH) {
   const N = w * h;
-  const inside = (i) => alpha[i] >= 128;
-  const dIn = edt(w, h, (i) => !inside(i));
-  const dOut = edt(w, h, (i) => inside(i));
-  const sdf = new Float32Array(N);
-  for (let i = 0; i < N; i++) sdf[i] = dOut[i] - dIn[i];
+  const s = signedDist(alpha, w, h, 1 / 255);
+  const dIn = new Float32Array(N), dOut = new Float32Array(N), sdf = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const v = s[i];
+    dIn[i] = v < 0.5 ? 0.5 - v : 0; dOut[i] = v > -0.5 ? 0.5 + v : 0;
+    sdf[i] = dOut[i] - dIn[i];
+  }
   const scale = textH / 300;
-  return { dIn, dOut, sdfS: blur(sdf, w, h, 2.5 * scale), scale };
+  return { dIn, dOut, s, sdfS: blur(sdf, w, h, 2.5 * scale), scale };
+}
+
+// Distance outside a soft coverage mask (0 inside, 1 for a pixel right at a hard edge) – for outlines and
+// shadows. Sub-pixel accurate, so outlines follow the anti-aliased silhouette instead of its pixel steps.
+function outsideDist(cov, w, h) {
+  const sd = signedDist(cov, w, h, 1), N = w * h, u = new Float32Array(N);
+  for (let i = 0; i < N; i++) u[i] = sd[i] > -0.5 ? sd[i] + 0.5 : 0;
+  return u;
+}
+// Bounds of all pixels with any alpha, grown by m and kept 1 px inside the canvas: { x0, y0, x1, y1 }
+function alphaBounds(alpha, w, h, m) {
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (alpha[y * w + x]) {
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  if (x1 < 0) return { x0: 1, y0: 1, x1: 0, y1: 0 };
+  return { x0: Math.max(1, x0 - m), y0: Math.max(1, y0 - m), x1: Math.min(w - 2, x1 + m), y1: Math.min(h - 2, y1 + m) };
+}
+// Bilinear sample of a w*h field (clamped at the borders)
+function sample(f, w, h, x, y) {
+  x = Math.max(0, Math.min(w - 1.001, x)); y = Math.max(0, Math.min(h - 1.001, y));
+  const xi = x | 0, yi = y | 0, fx = x - xi, fy = y - yi, i = yi * w + xi;
+  const a = f[i] + (f[i + 1] - f[i]) * fx, b = f[i + w] + (f[i + w + 1] - f[i + w]) * fx;
+  return a + (b - a) * fy;
+}
+
+// Height of the bevelled front face (0 at the edge, 1 on the flat top), lightly smoothed.
+function frontHeight(dIn, w, h, B, profile) {
+  const N = w * h, height = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const d = dIn[i] / B;
+    height[i] = d >= 1 ? 1 : profile === "round" ? Math.sqrt(1 - (1 - d) * (1 - d)) : d;
+  }
+  return blur(height, w, h, Math.max(1, B * (profile === "round" ? 0.18 : 0.08)));
 }
 
 function rampColor(ramp, u, out) {
@@ -175,23 +298,75 @@ function rampColor(ramp, u, out) {
   }
 }
 
+// Anti-aliased ramp lookup: the colour averaged over [u - fw/2, u + fw/2], where fw is how much u changes
+// across one pixel. The crisp horizon (the jump in the ramp) stays a jump, but spread over one pixel
+// instead of snapping per pixel into a stair-stepped line. Returns fn(u, fw, out).
+function rampSampler(ramp) {
+  const n = ramp.length, U = new Float64Array(n), C = new Float64Array(n * 3), I = new Float64Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    U[i] = ramp[i][0];
+    for (let ch = 0; ch < 3; ch++) C[i * 3 + ch] = (ramp[i][1] >> (16 - ch * 8)) & 255;
+  }
+  // I = integral of the ramp from U[0] to each stop
+  for (let i = 1; i < n; i++) for (let ch = 0; ch < 3; ch++) I[i * 3 + ch] = I[(i - 1) * 3 + ch] + (U[i] - U[i - 1]) * (C[(i - 1) * 3 + ch] + C[i * 3 + ch]) * 0.5;
+  const tmp = [0, 0, 0];
+  // integral from U[0] to u (the ramp is held constant outside its ends)
+  const integ = (u, o) => {
+    if (u <= U[0]) { for (let ch = 0; ch < 3; ch++) o[ch] = (u - U[0]) * C[ch]; return; }
+    if (u >= U[n - 1]) { for (let ch = 0; ch < 3; ch++) o[ch] = I[(n - 1) * 3 + ch] + (u - U[n - 1]) * C[(n - 1) * 3 + ch]; return; }
+    let i = 0;
+    while (i < n - 2 && u > U[i + 1]) i++;
+    const L = u - U[i], t = L / Math.max(1e-9, U[i + 1] - U[i]);
+    for (let ch = 0; ch < 3; ch++) {
+      const c0 = C[i * 3 + ch], ce = c0 + (C[(i + 1) * 3 + ch] - c0) * t;
+      o[ch] = I[i * 3 + ch] + L * (c0 + ce) * 0.5;
+    }
+  };
+  return (u, fw, out) => {
+    if (!(fw > 1e-5)) { rampColor(ramp, u, out); return; }
+    integ(u + fw * 0.5, out); integ(u - fw * 0.5, tmp);
+    for (let ch = 0; ch < 3; ch++) out[ch] = (out[ch] - tmp[ch]) / fw;
+  };
+}
+// How far u changes across one pixel, from the neighbours (the smaller one-sided step on each axis, so a
+// crease next to the pixel does not count as change inside it). Capped so a crease never smears the ramp.
+function footprint(uL, uR, uU, uD, u) {
+  const fx = Math.min(Math.abs(uR - u), Math.abs(u - uL)), fy = Math.min(Math.abs(uD - u), Math.abs(u - uU));
+  return Math.min(0.08, fx + fy);
+}
+// Specular highlight pow(nh, p) filtered over the pixel: where the normal turns a lot within one pixel the
+// highlight gets a little wider and dimmer instead of sparkling (spread = variance of the normal in the
+// pixel). Returns the filtered value.
+function specAA(nh, p, spread) {
+  if (!(spread > 1e-6)) return Math.pow(nh, p);
+  const q = p / (1 + p * spread);
+  return Math.pow(nh, q) * (q + 2) / (p + 2);
+}
+// Normal variance inside a pixel from the normals of its 4 neighbours (unit vectors)
+function normalSpread(n, i, w) {
+  let s = 0;
+  for (let c = 0; c < 3; c++) {
+    const dx = (n[(i + 1) * 3 + c] - n[(i - 1) * 3 + c]) * 0.5, dy = (n[(i + w) * 3 + c] - n[(i - w) * 3 + c]) * 0.5;
+    s += dx * dx + dy * dy;
+  }
+  return s / 12;
+}
+
 // ---------------------------------------------------------------- Chrome Extrude
+// Sub-pixel positions for the extra samples on edge pixels (8 samples, each row and column used once)
+const SS8 = [[1, -3], [-1, 3], [5, 1], [-3, -5], [-5, 5], [-7, -1], [3, 7], [7, -7]].map(([x, y]) => [x / 16, y / 16]);
+
 // alpha (already padded so the effect fits), w, h. box/vp from layout() in the SAME coordinates.
 // Returns straight-alpha RGBA (Uint8ClampedArray).
 function renderChromeExtrude(alpha, w, h, box, vp, p, F) {
   const P = params(p);
   const N = w * h;
   F = F || fields(alpha, w, h, box.h);
-  const { dIn, dOut, sdfS } = F;
+  const { dIn, sdfS } = F, S = F.s;
   const textH = box.h, top = box.y0, scale = textH / 300;
   const B = Math.max(2, P._bevel * textH);
-  const height = new Float32Array(N);
-  for (let i = 0; i < N; i++) {
-    const d = dIn[i] / B;
-    height[i] = d >= 1 ? 1 : P.profile === "round" ? Math.sqrt(1 - (1 - d) * (1 - d)) : d;
-  }
-  const heightS = blur(height, w, h, Math.max(1, B * (P.profile === "round" ? 0.18 : 0.08)));
-  const ramp = rampFor(P);
+  const heightS = frontHeight(dIn, w, h, B, P.profile);
+  const ramp = rampFor(P), rampAA = rampSampler(ramp);
   const solidSide = P.sideMode === "solid", sc1 = hexInt(P.sideColor), sc2 = hexInt(P.sideColor2);
   const specK = (P.shine === undefined ? 70 : P.shine) / 100 * 2;
 
@@ -201,81 +376,136 @@ function renderChromeExtrude(alpha, w, h, box, vp, p, F) {
     const a = f[i] + (f[i + 1] - f[i]) * fx, b = f[i + w] + (f[i + w + 1] - f[i + w]) * fx;
     return a + (b - a) * fy;
   };
-  const near = (f, x, y) => f[Math.max(0, Math.min(h - 1, Math.round(y))) * w + Math.max(0, Math.min(w - 1, Math.round(x)))];
 
-  // side walls: march toward the vanishing point
-  const vpx = vp.x, vpy = vp.y, s = P._depth;
-  const sideT = new Float32Array(N).fill(-1), sideX = new Float32Array(N), sideY = new Float32Array(N);
-  const capHit = new Uint8Array(N);
-  if (s > 0) {
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const i = y * w + x;
-        let t = 0.0005;
-        for (;;) {
-          const tt = Math.min(t, 1), k = 1 - tt * s;
-          const px = (x - vpx * tt * s) / k, py = (y - vpy * tt * s) / k;
-          const cx = Math.max(0, Math.min(w - 1, px)), cy = Math.max(0, Math.min(h - 1, py));
-          const off = Math.hypot(px - cx, py - cy);
-          const d = Math.max(off, near(dOut, cx, cy) - off);
-          if (d < 0.75 && off === 0) {
-            sideT[i] = tt; sideX[i] = px; sideY[i] = py;
-            if (t >= 1) capHit[i] = 1;
-            break;
-          }
-          if (t >= 1) break;
-          const speed = s * Math.hypot(vpx - px, vpy - py) / k;
-          t += Math.max(0.0015, (d * 0.9) / Math.max(speed, 1e-3));
-        }
-      }
-    }
-  }
-
+  // ---- side walls: march from a screen point toward the vanishing point until the ray enters the shape.
+  // The shape is sampled smoothly (bilinear signed distance), so a hit is found within a fraction of a pixel.
   const L = [-0.45, -0.75, 0.48];
   const ln = Math.hypot(L[0], L[1], L[2]); L[0] /= ln; L[1] /= ln; L[2] /= ln;
-  const col = [0, 0, 0], col2 = [0, 0, 0];
+  const vpx = vp.x, vpy = vp.y, s = P._depth;
+  const col = [0, 0, 0], wc = [0, 0, 0];
+  // wall colour at a screen point -> wc (RGB), returns 0 = nothing, 1 = wall, 2 = back cap
+  const wallAt = (x, y) => {
+    if (s <= 0) return 0;
+    let t = 0.0005;
+    for (;;) {
+      const tt = t < 1 ? t : 1, k = 1 - tt * s;
+      const px = (x - vpx * tt * s) / k, py = (y - vpy * tt * s) / k;
+      let d;
+      if (px >= 0 && py >= 0 && px <= w - 1.001 && py <= h - 1.001) {
+        d = bil(S, px, py);
+        if (d < 0) {
+          const cap = t >= 1;
+          let nx = 0, ny = 0;
+          if (!cap) {
+            nx = bil(sdfS, px + 1, py) - bil(sdfS, px - 1, py);
+            ny = bil(sdfS, px, py + 1) - bil(sdfS, px, py - 1);
+            const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+          }
+          const lam = Math.max(0, nx * L[0] + ny * L[1]);
+          if (solidSide) { const c = mixInt(sc1, sc2, tt); col[0] = (c >> 16) & 255; col[1] = (c >> 8) & 255; col[2] = c & 255; }
+          else rampColor(ramp, 0.5 + 0.32 * ny + 0.22 * tt, col);
+          const shade = cap ? 0.35 : (0.45 + 0.75 * lam) * (1 - 0.45 * tt);
+          wc[0] = col[0] * shade; wc[1] = col[1] * shade; wc[2] = col[2] * shade;
+          return cap ? 2 : 1;
+        }
+      } else {
+        const cx = Math.max(0, Math.min(w - 1, px)), cy = Math.max(0, Math.min(h - 1, py));
+        const off = Math.hypot(px - cx, py - cy);
+        d = Math.max(off, S[Math.round(cy) * w + Math.round(cx)] - off);
+      }
+      if (t >= 1) return 0;
+      const speed = s * Math.hypot(vpx - px, vpy - py) / k;
+      t += Math.max(0.0015, (d * 0.9 + 0.02) / Math.max(speed, 1e-3));
+    }
+  };
+
+  // pass 1: one ray through each pixel centre that is not fully covered by the front face.
+  // kind: 0 = nothing, 1 = wall, 2 = cap, 3 = centre lies under the front's soft edge, 4 = front covers it
+  const kind = new Uint8Array(N), wR = new Float32Array(N), wG = new Float32Array(N), wB = new Float32Array(N);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (alpha[i] === 255) { kind[i] = 4; continue; }
+    if (S[i] < 0) { kind[i] = 3; continue; }
+    const k = wallAt(x, y);
+    kind[i] = k;
+    if (k) { wR[i] = wc[0]; wG[i] = wc[1]; wB[i] = wc[2]; }
+  }
+  // pass 2: pixels where the walls change abruptly (silhouettes, wall over wall, sharp corners) and pixels
+  // under the front's soft edge get 8 rays; their wall coverage becomes a fraction.
+  const cw = new Float32Array(N), edge = new Uint8Array(N);
+  const diff = (i, j) => {
+    const ki = kind[i], kj = kind[j];
+    if (kj >= 3) return false;
+    if (ki !== kj) return true;
+    return ki !== 0 && Math.max(Math.abs(wR[i] - wR[j]), Math.abs(wG[i] - wG[j]), Math.abs(wB[i] - wB[j])) > 20;
+  };
+  // find the edge pixels first (on the pass-1 colours), then resample them
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, ki = kind[i];
+    if (ki === 4) continue;
+    edge[i] = ki === 3 || (x > 0 && diff(i, i - 1)) || (x < w - 1 && diff(i, i + 1)) || (y > 0 && diff(i, i - w)) || (y < h - 1 && diff(i, i + w)) ? 1 : 0;
+    if (!edge[i]) cw[i] = ki ? 1 : 0;
+  }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (!edge[i]) continue;
+    let r = 0, g = 0, b = 0, hit = 0, n = 0;
+    for (const [ox, oy] of SS8) {
+      const sx = x + ox, sy = y + oy;
+      if (bil(S, sx, sy) < 0) continue;          // this part of the pixel belongs to the front face
+      n++;
+      if (wallAt(sx, sy)) { r += wc[0]; g += wc[1]; b += wc[2]; hit++; }
+    }
+    // straight colour + coverage of the walls in the part of the pixel the front leaves open
+    if (hit) { wR[i] = r / hit; wG[i] = g / hit; wB[i] = b / hit; }
+    cw[i] = n ? hit / n : 0;
+  }
+
+  // ---- front face: bevel normals from the smoothed height, ramp reflection, highlight, dark edge line
+  // normals of the front (and one pixel around it) first, so each pixel can see how fast they change
+  const nrm = new Float32Array(N * 3), U = new Float32Array(N);
+  const { x0, y0, x1, y1 } = alphaBounds(alpha, w, h, 2);
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const i = y * w + x;
+    let nx = -(heightS[i + 1] - heightS[i - 1]) * B * 0.5;
+    let ny = -(heightS[i + w] - heightS[i - w]) * B * 0.5;
+    const nl = Math.hypot(nx, ny, 1);
+    nrm[i * 3] = nx / nl; nrm[i * 3 + 1] = ny / nl; nrm[i * 3 + 2] = 1 / nl;
+    U[i] = (y - top) / textH + (ny / nl) * 0.55;
+  }
+  const hx = L[0], hy = L[1], hz = L[2] + 1, hl = Math.hypot(hx, hy, hz);
   const oR = new Float32Array(N), oG = new Float32Array(N), oB = new Float32Array(N), cov = new Float32Array(N);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x, a = alpha[i] / 255;
-      let r = 0, g = 0, b = 0, c = 0;
-      if (sideT[i] >= 0) {
-        const t = sideT[i], px = sideX[i], py = sideY[i];
-        let nx = bil(sdfS, px + 1, py) - bil(sdfS, px - 1, py);
-        let ny = bil(sdfS, px, py + 1) - bil(sdfS, px, py - 1);
-        const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
-        if (capHit[i]) { nx = 0; ny = 0; }
-        const lam = Math.max(0, nx * L[0] + ny * L[1]);
-        if (solidSide) { const c = mixInt(sc1, sc2, t); col[0] = (c >> 16) & 255; col[1] = (c >> 8) & 255; col[2] = c & 255; }
-        else rampColor(ramp, 0.5 + 0.32 * ny + 0.22 * t, col);
-        const shade = capHit[i] ? 0.35 : (0.45 + 0.75 * lam) * (1 - 0.45 * t);
-        r = col[0] * shade; g = col[1] * shade; b = col[2] * shade; c = 1;
-      }
+      // walls (premultiplied by their coverage)
+      let c = cw[i], r = wR[i] * c, g = wG[i] * c, b = wB[i] * c;
       if (a > 0) {
-        let nx = -(bil(heightS, x + 1, y) - bil(heightS, x - 1, y)) * B * 0.5;
-        let ny = -(bil(heightS, x, y + 1) - bil(heightS, x, y - 1)) * B * 0.5;
-        let nz = 1;
-        const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl;
-        rampColor(ramp, (y - top) / textH + ny * 0.55, col2);
-        const hx = L[0], hy = L[1], hz = L[2] + 1, hl = Math.hypot(hx, hy, hz);
-        const spec = Math.pow(Math.max(0, (nx * hx + ny * hy + nz * hz) / hl), 60) * specK;
+        const inBox = x >= x0 + 1 && x <= x1 - 1 && y >= y0 + 1 && y <= y1 - 1;
+        const nx = nrm[i * 3], ny = nrm[i * 3 + 1], nz = nrm[i * 3 + 2];
+        const u = U[i];
+        rampAA(u, inBox ? footprint(U[i - 1], U[i + 1], U[i - w], U[i + w], u) : 0, col);
+        const nh = Math.max(0, (nx * hx + ny * hy + nz * hz) / hl);
+        const spec = specAA(nh, 60, inBox ? normalSpread(nrm, i, w) : 0) * specK;
         const edge = 1 - P._edge * (1 - Math.min(1, Math.max(0, (dIn[i] - 0.5) / (1.5 * Math.max(1, scale)))));
-        const fr = Math.min(255, (col2[0] + 255 * spec) * edge), fg = Math.min(255, (col2[1] + 255 * spec) * edge), fb = Math.min(255, (col2[2] + 255 * spec) * edge);
+        const fr = Math.min(255, (col[0] + 255 * spec) * edge), fg = Math.min(255, (col[1] + 255 * spec) * edge), fb = Math.min(255, (col[2] + 255 * spec) * edge);
         r = r * (1 - a) + fr * a; g = g * (1 - a) + fg * a; b = b * (1 - a) + fb * a;
-        c = Math.max(c, a);
+        c = c * (1 - a) + a;
       }
-      oR[i] = r; oG[i] = g; oB[i] = b; cov[i] = c;
+      // back to straight colour
+      if (c > 0) { oR[i] = r / c; oG[i] = g / c; oB[i] = b / c; }
+      cov[i] = c;
     }
   }
 
-  // outline + hard shadow around the whole silhouette
-  const uOut = edt(w, h, (i) => cov[i] >= 0.5);
+  // outline + hard shadow around the whole silhouette (sub-pixel distance to the soft silhouette)
+  const uOut = outsideDist(cov, w, h);
   const sw = Math.max(1.5, P._stroke * textH);
   const sw2 = P._stroke2 > 0 ? Math.max(1, P._stroke2 * textH) : 0, swAll = (P.stroke > 0 ? sw : 0) + sw2;
   const toRgb = (n) => [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   const cStroke = toRgb(hexInt(P.strokeColor)), cStroke2 = toRgb(hexInt(P.stroke2Color)), cShadow = toRgb(hexInt(P.shadowColor));
   const shOp = (P.shadowOpacity === undefined ? 85 : P.shadowOpacity) / 100;
-  const sx = Math.round(P._shX * textH), sy = Math.round(P._shY * textH);
+  const sx = P._shX * textH, sy = P._shY * textH;
   const out = new Uint8ClampedArray(N * 4);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -283,7 +513,7 @@ function renderChromeExtrude(alpha, w, h, box, vp, p, F) {
       let shadowA = 0;
       const sxp = x - sx, syp = y - sy;
       if (P.stroke > 0 || P.shadowX || P.shadowY) {
-        if (sxp >= 0 && syp >= 0 && sxp < w && syp < h && (sx || sy)) shadowA = Math.max(0, Math.min(1, Math.max(sw, swAll) + 1 - uOut[syp * w + sxp]));
+        if (sxp > -1 && syp > -1 && sxp < w && syp < h && (sx || sy)) shadowA = Math.max(0, Math.min(1, Math.max(sw, swAll) + 1 - bil(uOut, sxp, syp)));
       }
       const stroke2A = sw2 > 0 ? Math.max(0, Math.min(1, swAll + 0.5 - uOut[i])) : 0;
       const strokeA = P.stroke > 0 ? Math.max(0, Math.min(1, sw + 0.5 - uOut[i])) : 0;
@@ -321,4 +551,5 @@ const MATERIALS = [{ id: "chrome", name: "Chrome" }, { id: "gold", name: "Gold" 
   { id: "holo", name: "Holographic" }, { id: "custom", name: "Custom colours" }];
 const PROFILES = [{ id: "chamfer", name: "Chamfer" }, { id: "round", name: "Round" }];
 
-module.exports = { DEFAULTS, RAMPS, EFFECTS, MATERIALS, PROFILES, params, layout, pad, fields, renderChromeExtrude, renderFromAlpha, edt, blur, rampColor, rampFor, hexInt };
+module.exports = { DEFAULTS, RAMPS, EFFECTS, MATERIALS, PROFILES, params, layout, pad, fields, frontHeight, renderChromeExtrude, renderFromAlpha, edt, signedDist, outsideDist, sample, alphaBounds, blur,
+  rampColor, rampFor, rampSampler, footprint, specAA, normalSpread, hexInt };
