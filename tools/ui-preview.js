@@ -1,5 +1,5 @@
-// Zeigt die Panel-Oberfläche im Browser (ohne Photoshop): Photoshop/UXP werden nachgebildet.
-// Aufruf über ui-preview.html; der Plugin-Ordner steht dort in data-plugin (z. B. "../glow/").
+// Shows the panel UI in a browser (without Photoshop): Photoshop/UXP are mocked.
+// Open ui-preview.html; it names the plugin folder in data-plugin (e.g. "../glow/").
 const SCRIPT_END = "</" + "script>";
 const f = document.getElementById("frame");
 const base = f.getAttribute("data-plugin");
@@ -7,7 +7,7 @@ const base = f.getAttribute("data-plugin");
   const get = async (p) => (await fetch(base + p)).text();
   const html = await get("index.html");
   const main = await get("main.js");
-  // alle lokalen Module einsammeln, die main.js (und deren Module) per require("./x.js") laden
+  // collect every local module that main.js (and its modules) load via require("./x.js")
   const mods = {};
   const scan = async (src) => {
     for (const m of src.matchAll(/require\("\.\/([^"]+)"\)/g)) {

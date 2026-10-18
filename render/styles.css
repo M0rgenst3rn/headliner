@@ -1,9 +1,9 @@
-/* MS Render – Ergänzungen zum gemeinsamen Morgenstern-Design (ms-ui.css) */
+/* Morgenstern Render – additions to the shared Morgenstern design (ms-ui.css) */
 .render-preview { height: 190px; }
 .render-preview webview { width: 100%; height: 190px; border: none; }
 .preview-under { margin-top: 6px; }
 
-/* Effekt-Kacheln: Klick = anwenden */
+/* effect tiles: click = apply */
 .fx-grid { display: flex; flex-direction: row; flex-wrap: wrap; margin: 0 -3px; }
 .fx-tile { box-sizing: border-box; width: 47%; margin: 1.5%; padding: 3px; border: 1px solid #141b2c; border-radius: 8px; cursor: pointer; background-color: #0b0f1a; }
 .fx-tile:hover { border-color: #2a3a66; }
@@ -14,7 +14,7 @@
 .fx-tile.active .lbl { color: #ffffff; }
 .effect-mode { font-size: 10px; color: #7b9cff; margin: -4px 0 4px; }
 
-/* Stapel der Effekte (immer oben sichtbar) */
+/* effect stack (always visible at the top) */
 .stack-head { display: flex; flex-direction: row; align-items: center; margin-top: 10px; }
 .stack-title { font-size: 12px; font-weight: 600; color: #e6ebf7; }
 .stack-info { flex: 1; font-size: 10px; color: #7e89a6; padding-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -33,7 +33,7 @@
 .stack-row .bt.dis { color: #2a3554; cursor: default; }
 .stack-row .rm:hover { color: #ff8a9a; }
 
-/* Farbe: Feld + Hex; darunter Palette und Farbkreis */
+/* colour: swatch + hex; palette and colour wheel below */
 .wheel-pop { margin: 2px 0 10px; padding: 10px; border-radius: 10px; background-color: #0d1220; border: 1px solid #263256; }
 .wheel { position: relative; width: 150px; height: 150px; margin: 8px auto 2px; cursor: crosshair; }
 .wheel img { position: absolute; left: 0; top: 0; width: 150px; height: 150px; }

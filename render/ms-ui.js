@@ -1,12 +1,12 @@
-// Morgenstern-Bedienelemente – gemeinsam für alle MS-Werkzeuge.
-// Bewusst keine Photoshop-Bausteine (sp-slider, native Checkboxen/Selects, Photoshop-Farbwähler als Standard):
-// eigene Regler, Schalter, Segmente, Farb-Popover, aufklappbare Bereiche und Preset-Liste.
-// Die Klassen passen zu ms-ui.css.
+// Morgenstern controls – shared by all Morgenstern tools.
+// Deliberately no Photoshop widgets (sp-slider, native checkboxes/selects, Photoshop colour picker by default):
+// own sliders, switches, segments, colour popover, collapsible sections and preset list.
+// The classes match ms-ui.css.
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-// Regler: Name und Wert oben, darunter eine schmale Spur mit leuchtender Füllung.
-// Ziehen, Klick auf die Spur, Pfeiltasten (Umschalt = ×10), Doppelklick = Standardwert, Wert direkt eintippen.
+// Slider: name and value on top, a thin track with a glowing fill below.
+// Drag, click the track, arrow keys (Shift = ×10), double-click = default, or type the value.
 // def: { label, min, max, step, unit, tip, sub, def }  io: { get(), set(v), done() }
 function slider(parent, def, io) {
   const row = document.createElement("div");
@@ -50,7 +50,7 @@ function slider(parent, def, io) {
   return { row, def, set: show };
 }
 
-// Schalter, der ein verstecktes Kontrollkästchen steuert – so bleibt „.checked“ für die Logik erhalten.
+// Switch that drives a hidden checkbox – so ".checked" keeps working for the logic.
 // Markup: <div class="switch" data-for="id"><span class="knob"></span><span class="sw-label">…</span></div><input type="checkbox" id="id" class="hidden">
 const switchHandlers = {};
 function bindSwitch(id, onChange) {
@@ -67,7 +67,7 @@ function syncSwitches() {
   });
 }
 
-// Segment-Schalter (ersetzt Ausklapplisten). options: [{ id, name, tip }]
+// Segmented control (replaces dropdowns). options: [{ id, name, tip }]
 function seg(el, options, onPick) {
   el.innerHTML = options.map((o) => `<div class="seg-btn" data-v="${esc(o.id)}"${o.tip ? ` title="${esc(o.tip)}"` : ""}>${esc(o.name)}</div>`).join("");
   el.querySelectorAll(".seg-btn").forEach((b) => b.addEventListener("click", () => onPick(b.getAttribute("data-v"))));
@@ -76,14 +76,14 @@ function syncSeg(el, value) {
   el.querySelectorAll(".seg-btn").forEach((b) => { b.className = b.getAttribute("data-v") === String(value) ? "seg-btn active" : "seg-btn"; });
 }
 
-// Farb-Popover: abgestimmte Palette, Hex-Eingabe, Photoshops Farbwähler nur auf Wunsch („Exakt wählen…“).
+// Colour popover: curated palette, hex input, Photoshop's colour picker only on request ("Pick exactly…").
 const PALETTE = ["#ffffff", "#ffe9c7", "#ffcf9a", "#ffb060", "#ff8a3d", "#ff5a2a", "#ff3f6e", "#ff3fa4",
   "#d24dff", "#9a5cff", "#6a5cff", "#3d6bff", "#2a8cff", "#3fd4ff", "#2fe0c8", "#2fb8b0",
   "#39ff7a", "#a6ff4d", "#ffe14d", "#9cc4ff", "#c8d8ff", "#7a86a3", "#3a4058", "#000000"];
 let popKey = null;
-// Das Popover erscheint unter der ganzen Zeile (.field / .row) des Farbfelds
+// The popover opens below the whole row (.field / .row) of the swatch
 function rowOf(el) { while (el && !/\b(field|row)\b/.test(el.className || "")) el = el.parentNode; return el; }
-// opts: { pop (Element), key, anchor (Element in der Zeile), get(), set(hex), exact() , palette }
+// opts: { pop (element), key, anchor (element in the row), get(), set(hex), exact(), palette }
 function openColorPop(opts) {
   const pop = opts.pop;
   if (popKey === opts.key && pop.className.indexOf("hidden") < 0) return closeColorPop(pop);
@@ -91,8 +91,8 @@ function openColorPop(opts) {
   const cur = String(opts.get()).toLowerCase(), pal = opts.palette || PALETTE;
   pop.innerHTML = `<div class="pal">${pal.map((c) => `<div class="pal-c${c === cur ? " on" : ""}" data-c="${c}" style="background-color:${c}"></div>`).join("")}</div>` +
     `<div class="pop-row"><input type="text" class="hex pop-hex" maxlength="7" value="${esc(cur)}">` +
-    (opts.exact ? `<div class="btn small ghost pop-exact">Exakt wählen…</div>` : "") +
-    `<div class="btn small pop-done">Fertig</div></div>`;
+    (opts.exact ? `<div class="btn small ghost pop-exact">Pick exactly…</div>` : "") +
+    `<div class="btn small pop-done">Done</div></div>`;
   const row = rowOf(opts.anchor) || opts.anchor;
   row.parentNode.insertBefore(pop, row.nextSibling);
   pop.className = "color-pop";
@@ -106,27 +106,27 @@ function openColorPop(opts) {
 }
 function closeColorPop(pop) { popKey = null; if (pop) pop.className = "color-pop hidden"; }
 
-// Aufklappbare Bereiche (.sec[data-sec] > .sec-head + .sec-body); das Panel merkt sich, was offen war
+// Collapsible sections (.sec[data-sec] > .sec-head + .sec-body); the panel remembers what was open
 function sections(storeKey, defaults) {
   let open = {};
   try { open = Object.assign({}, defaults, JSON.parse(localStorage.getItem(storeKey) || "{}")); } catch (e) { open = Object.assign({}, defaults); }
   document.querySelectorAll(".sec").forEach((sec) => {
     const name = sec.getAttribute("data-sec"), head = sec.querySelector(".sec-head");
     const apply = () => { sec.className = open[name] ? "sec open" : "sec"; };
-    head.addEventListener("click", () => { open[name] = !open[name]; apply(); try { localStorage.setItem(storeKey, JSON.stringify(open)); } catch (e) { /* egal */ } });
+    head.addEventListener("click", () => { open[name] = !open[name]; apply(); try { localStorage.setItem(storeKey, JSON.stringify(open)); } catch (e) { /* ignore */ } });
     apply();
   });
 }
-// Kopf eines Bereichs mit Titel, Zusatz rechts daneben und +/– (für Markup, das per JS entsteht)
+// Section head with title, side note and +/– (for markup built in JS)
 function secHead(title, metaId, meta) {
   return `<div class="sec-head"><span class="sec-title">${esc(title)}</span><span${metaId ? ` id="${metaId}"` : ""} class="sec-meta">${esc(meta || "")}</span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>`;
 }
 
-// Eigene Presets als Liste: Klick lädt, × löscht
+// Own presets as a list: click loads, × deletes
 function presetList(box, names, onLoad, onDelete) {
   box.innerHTML = names.length
-    ? names.map((n) => `<div class="preset" data-n="${esc(n)}"><span class="preset-name">${esc(n)}</span><span class="preset-del" title="Löschen">×</span></div>`).join("")
-    : `<div class="empty">Noch keine eigenen Presets – stell einen Look ein und speichere ihn.</div>`;
+    ? names.map((n) => `<div class="preset" data-n="${esc(n)}"><span class="preset-name">${esc(n)}</span><span class="preset-del" title="Delete">×</span></div>`).join("")
+    : `<div class="empty">No presets yet – set up a look and save it.</div>`;
   box.querySelectorAll(".preset").forEach((el) => {
     const n = el.getAttribute("data-n");
     el.querySelector(".preset-name").addEventListener("click", () => onLoad(n));

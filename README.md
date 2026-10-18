@@ -3,198 +3,198 @@
 </p>
 
 <p align="center">
-  <b>Retro- und moderne 3D-Texteffekte für Photoshop: Chrome, Gold, Feuer, Blitze, Glow und vieles mehr.<br>
-  Direkt aus deinem Live-Text gerendert, der Text bleibt bearbeitbar.</b><br>
-  <sub>Photoshop 2023 (24.2) oder neuer · UXP-Panel</sub><br>
-  <sub>Freie Photoshop-Tools von <b>Morgenstern</b> · <a href="https://github.com/M0rgenst3rn/ms-distress">Morgenstern Distress</a> · <a href="https://github.com/M0rgenst3rn/ms-printer">Morgenstern Printer</a> · <b>Morgenstern Render</b> · <a href="https://github.com/M0rgenst3rn/ms-phase">Morgenstern Phase</a> · <a href="https://github.com/M0rgenst3rn/ms-glow">Morgenstern Glow</a></sub>
+  <b>Retro and modern 3D text effects for Photoshop: chrome, gold, fire, lightning, glow and much more.<br>
+  Rendered straight from your live text – the text stays editable.</b><br>
+  <sub>Photoshop 2023 (24.2) or newer · UXP panel</sub><br>
+  <sub>Free Photoshop tools by <b>Morgenstern</b> · <a href="https://github.com/M0rgenst3rn/ms-distress">Morgenstern Distress</a> · <a href="https://github.com/M0rgenst3rn/ms-printer">Morgenstern Printer</a> · <b>Morgenstern Render</b> · <a href="https://github.com/M0rgenst3rn/ms-phase">Morgenstern Phase</a> · <a href="https://github.com/M0rgenst3rn/ms-glow">Morgenstern Glow</a></sub>
 </p>
 
 ---
 
-## Was ist Morgenstern Render?
+## What is Morgenstern Render?
 
-Morgenstern Render ist ein Panel-Plugin für Adobe Photoshop, gemacht für T-Shirt-Designs, Logos und Titel. Du wählst
-eine Text- oder Formebene, klickst einen Effekt an und bekommst einen fertigen Look, etwa 80er-Chrome mit
-Perspektive, Feuer, Neon-Glow oder Blitze. Effekte lassen sich wie Ebenen **stapeln**. **15 Combos** liefern
-fertige Kombinationen.
+Morgenstern Render is a panel plugin for Adobe Photoshop, made for t-shirt designs, logos and titles. Pick a
+text or shape layer, click an effect, and you get a finished look – 80s chrome with perspective, fire, neon
+glow or lightning. Effects can be **stacked** like layers. **15 combos** give you ready-made combinations.
 
-Alles wird prozedural berechnet, ohne Bilddateien, und ist in jeder Auflösung scharf. Das Ergebnis landet als
-echte Ebenen in einer Gruppe. Deine Original-Ebene bleibt darin erhalten und bleibt bearbeitbar: Änderst du den
-Text, rechnet Morgenstern Render den Effekt automatisch neu.
+Everything is computed procedurally, without image files, and stays sharp at any resolution. The result lands
+as real layers in a group. Your original layer stays inside it and stays editable: change the text and
+Morgenstern Render recomputes the effect automatically.
 
 ### Highlights
 
-- **25 Effekte**: 11 Looks, 9 Effekte hinter dem Text, 5 Effekte über dem Text
-- **Chrome Extrude** in 10 Materialien mit verschiebbarem Fluchtpunkt, Horizont, Outlines und harten Schatten
-- **Stapeln wie Ebenen**: Chrome + Feuer + Glow + Sterne. Jeder Effekt wird eine eigene Ebene
-- **15 Combos** als fertige Stapel. **Dein Look bleibt dabei immer genau so, wie du ihn eingestellt hast**
-- **Galerie mit deinem eigenen Text**: Alle Vorschaubilder zeigen deine ausgewählte Schrift
-- **Live-Vorschau** im Panel, Chrome Extrude auf der GPU in wenigen Millisekunden
-- **Live-Text bleibt live**: Text ändern, und der Effekt passt sich an
-- **Export für den Druck**: transparentes PNG, 300 dpi, Breite in cm, harte Kanten für **DTF**
-- **Selbsttest**: 142 Prüfungen gegen das echte Photoshop-Ergebnis
+- **25 effects**: 11 looks, 9 effects behind the text, 5 effects on top of the text
+- **Chrome Extrude** in 10 materials with a movable vanishing point, horizon, outlines and hard shadows
+- **Stack like layers**: chrome + fire + glow + stars. Every effect becomes its own layer
+- **15 combos** as ready-made stacks. **Your look always stays exactly as you set it**
+- **Gallery with your own text**: every thumbnail shows your selected lettering
+- **Live preview** in the panel, Chrome Extrude on the GPU in a few milliseconds
+- **Live text stays live**: change the text and the effect follows
+- **A tidy panel**: collapsible sections, a colour palette, the main settings on top, everything else under *More settings*
+- **Export for print**: transparent PNG, 300 dpi, width in cm, hard edges for **DTF**
+- **Self-test**: 142 checks against the real Photoshop result
 
-## 25 Effekte
+## 25 effects
 
-<p align="center"><img src="docs/images/effects.png" alt="Alle 25 Effekte"></p>
+<p align="center"><img src="docs/images/effects.png" alt="All 25 effects"></p>
 
-| Look (ersetzt die Füllung) | Hinter dem Text | Über dem Text |
+| Look (replaces the fill) | Behind the text | On top of the text |
 |---|---|---|
 | Chrome Extrude, Inflate, Bevel, Glass, Halftone, Brushed Metal, Diamond Plate, Rust, Wood, Marble, Stone | Shadow, Glow, Corona, Backlight, Fire, Smoke, Motion Trail, Retro Stack, Sticker | Lightning, Electrify, Star, Snow, Water Drops |
 
-Jeder Effekt hat eigene **Looks** (Presets). Alle Größen sind in % der Texthöhe angegeben, ein Look passt also
-zu jeder Schriftgröße.
+Every effect has its own **looks** (presets). All sizes are given in % of the text height, so a look fits any
+font size.
 
 ## Chrome Extrude
 
-Der klassische 80er-Look, in 10 Materialien und mit eigenen Farben für Himmel und Boden der Spiegelung:
+The classic 80s look, in 10 materials and with your own colours for the sky and ground of the reflection:
 
-<p align="center"><img src="docs/images/chrome-materials.png" alt="Chrome Extrude in 10 Materialien"></p>
+<p align="center"><img src="docs/images/chrome-materials.png" alt="Chrome Extrude in 10 materials"></p>
 
-Weitere Einstellungen:
-- **Fluchtpunkt und Tiefe**: in der Vorschau ziehen
-- **Horizont und Glanz**: wo die Spiegelung liegt und wie stark sie ist
-- **Kanten und Seitenwände**: Fase eckig oder rund; Seitenwände im Material oder mit Farbverlauf (Synthwave)
-- **Outline und Schatten**: zweite Outline und harter Schatten, jeweils in eigener Farbe
+More settings:
+- **Vanishing point and depth**: drag in the preview
+- **Horizon and shine**: where the reflection sits and how strong it is
+- **Edges and sides**: chamfered or round bevel; sides in the material or with a gradient (synthwave)
+- **Outline and shadow**: a second outline and a hard shadow, each in its own colour
 
-## Effekte stapeln
+## Stacking effects
 
-Ein Stapel funktioniert wie Ebenen in Photoshop. Es gibt einen **Look** (die Füllung), dazu kommen Effekte
-**dahinter** und **darüber**. Effekte hinter einem Look folgen seiner 3D-Form: Ein Glow legt sich um die
-extrudierten Buchstaben, nicht nur um den flachen Text.
+A stack works like layers in Photoshop. There is one **look** (the fill), plus effects **behind** and
+**on top**. Effects behind a look follow its 3D shape: a glow wraps around the extruded letters, not just the
+flat text.
 
-<p align="center"><img src="docs/images/stack-steps.png" alt="Einen Stapel aufbauen"></p>
+<p align="center"><img src="docs/images/stack-steps.png" alt="Building a stack"></p>
 
-So baust du einen Stapel:
-1. **Look wählen**, z. B. Chrome Extrude, und im Bereich *Settings* das Material auf *Silver* stellen
-2. **+ Add effect** klicken, dann **Fire**
-3. **+ Add effect** klicken, dann **Glow**
-4. Im Stapel mit **▲▼** die Reihenfolge ändern, mit **●** ausblenden, mit **✕** entfernen. Ein Klick auf einen
-   Eintrag zeigt dessen Einstellungen
+How to build a stack:
+1. **Pick a look**, e.g. Chrome Extrude, and set the material to *Silver* under *Settings*
+2. Click **+ Add effect**, then **Fire**
+3. Click **+ Add effect**, then **Glow**
+4. In the stack, change the order with **▲▼**, hide with **●**, remove with **✕**. Click an entry to see its
+   settings
 
-### Was passiert bei welchem Klick?
+### What does each click do?
 
-| Aktion | Ergebnis |
+| Action | Result |
 |---|---|
-| **Effekt anklicken** | Ersetzt die Effekte um deinen Look. **Der Look bleibt** |
-| **Anderen Look anklicken** (Chrome, Inflate, Bevel …) | Wechselt den Look |
-| **+ Add effect**, dann Effekt oder Combo | Kommt zusätzlich in den Stapel |
-| **⌥-Klick** auf einen Effekt | Tauscht nur den ausgewählten Eintrag aus |
-| **Combo anklicken** | Ersetzt die Effekte um deinen Look. **Der Look bleibt** |
-| **✕** an einem Eintrag | Entfernt nur diesen Eintrag |
-| **Remove** | Entfernt alle Effekte, die Original-Ebene steht wieder allein da |
-| **⌘Z** | Macht jeden Schritt rückgängig, wie gewohnt |
+| **Click an effect** | Replaces the effects around your look. **The look stays** |
+| **Click another look** (Chrome, Inflate, Bevel …) | Switches the look |
+| **+ Add effect**, then an effect or combo | Added to the stack |
+| **⌥-click** an effect | Swaps only the selected entry |
+| **Click a combo** | Replaces the effects around your look. **The look stays** |
+| **✕** on an entry | Removes only that entry |
+| **Remove** | Removes every effect, the original layer stands on its own again |
+| **⌘Z** | Undoes every step, as usual |
 
-## 15 Combos
+## 15 combos
 
-Fertige Stapel zum Ausprobieren. Die Vorschaubilder im Panel zeigen jede Combo **mit deinem Text und deinem
-Look**, also genau das, was ein Klick ergibt.
+Ready-made stacks to try. The thumbnails in the panel show every combo **with your text and your look** –
+exactly what a click gives you.
 
-<p align="center"><img src="docs/images/combos.png" alt="Alle 15 Combos"></p>
+<p align="center"><img src="docs/images/combos.png" alt="All 15 combos"></p>
 
-### Dein Look bleibt
+### Your look stays
 
-Hast du einen Look eingestellt, etwa silbernes Chrome mit eigener Tiefe, behält jede Combo ihn bei. Die Combo
-tauscht nur die Effekte darum herum aus. Ihren eigenen Look bringt sie nur mit, wenn du noch keinen gewählt hast.
+If you have set a look, e.g. silver chrome with your own depth, every combo keeps it. The combo only swaps
+the effects around it. It only brings its own look if you haven't chosen one yet.
 
-<p align="center"><img src="docs/images/look-stays.png" alt="Combos behalten deinen Look"></p>
+<p align="center"><img src="docs/images/look-stays.png" alt="Combos keep your look"></p>
 
-## Kombinationsideen
+## Combination ideas
 
-Diese Stapel baust du mit **+ Add effect** selbst nach:
+Build these stacks yourself with **+ Add effect**:
 
-<p align="center"><img src="docs/images/ideas.png" alt="Kombinationsideen"></p>
+<p align="center"><img src="docs/images/ideas.png" alt="Combination ideas"></p>
 
-| Idee | Look | Dahinter | Darüber | Tipp |
+| Idea | Look | Behind | On top | Tip |
 |---|---|---|---|---|
-| Cyber | Bevel, Farbe Cyan, Profil rund | Glow cyan | Electrify hellblau | Dunkles Shirt, Glow-Größe 20 % |
-| Winter | Glass, hellblau | Backlight | Snow | Backlight hinter den Text ziehen |
-| Gold | Chrome Extrude, Gold | Corona | Star | Wenige, große Sterne wirken edler |
-| Speed | Chrome Extrude, Black Chrome | Motion Trail + Shadow | – | Richtung in der Vorschau ziehen |
-| Holz | Wood | Sticker + Shadow (Drop) | – | Klassischer Aufnäher-Look |
-| Retro | Inflate, gelb | Retro Stack | – | Palette im Retro Stack wechseln |
+| Cyber | Bevel, colour cyan, round profile | Glow cyan | Electrify light blue | Dark shirt, glow size 20 % |
+| Winter | Glass, light blue | Backlight | Snow | Drag the backlight behind the text |
+| Gold | Chrome Extrude, Gold | Corona | Star | A few large stars look classier |
+| Speed | Chrome Extrude, Black Chrome | Motion Trail + Shadow | – | Drag the direction in the preview |
+| Wood | Wood | Sticker + Shadow (Drop) | – | Classic patch look |
+| Retro | Inflate, yellow | Retro Stack | – | Switch the palette in Retro Stack |
 
-## Export für den Druck
+## Export for print
 
-Unter **Export for print** speicherst du die ausgewählte Gruppe oder alle sichtbaren Ebenen als PNG:
-- **Format**: transparent und auf das Design zugeschnitten
-- **Größe**: 300 dpi, die Druckbreite gibst du in cm an
-- **Hard edges (DTF)**: Entfernt alle halbtransparenten Pixel. DTF-Drucker machen daraus sonst Raster-Ränder
-- **Sicherheit**: Der Export läuft auf einer Kopie, dein Dokument bleibt unverändert
+Under **Export for print** you save the selected group or all visible layers as PNG:
+- **Format**: transparent and trimmed to the design
+- **Size**: 300 dpi, you enter the print width in cm
+- **Hard edges (DTF)**: removes every semi-transparent pixel. DTF printers would otherwise turn them into halftone fringes
+- **Safety**: the export runs on a copy, your document stays untouched
 
 ## Installation
 
-### macOS (empfohlen)
+### macOS (recommended)
 
-1. Repository herunterladen (**Code → Download ZIP**) und entpacken
-2. Im Terminal im entpackten Ordner ausführen:
+1. Download the repository (**Code → Download ZIP**) and unzip it
+2. Run this in Terminal inside the unzipped folder:
    ```bash
    bash install-mac.sh
    ```
-3. Photoshop (neu) starten → **Zusatzmodule (Plugins) › MS Render**
+3. (Re)start Photoshop → **Plugins › MS Render**
 
-Das Skript braucht [Node.js](https://nodejs.org) für den Bundle-Schritt der Vorschau.
+The script needs [Node.js](https://nodejs.org) for the preview's bundle step.
 
 ### Alternative: UXP Developer Tool (macOS & Windows)
 
-1. „UXP Developer Tools“ über die Creative-Cloud-App installieren
-2. In Photoshop unter *Einstellungen › Zusatzmodule* den **Entwicklermodus** aktivieren
-3. Einmal `node tools/bundle.js` ausführen
-4. Im UXP Developer Tool **Add Plugin** wählen, dann `render/manifest.json` → **Load**
+1. Install "UXP Developer Tools" from the Creative Cloud app
+2. In Photoshop, turn on **Developer Mode** under *Settings › Plugins*
+3. Run `node tools/bundle.js` once
+4. In the UXP Developer Tool choose **Add Plugin**, then `render/manifest.json` → **Load**
 
-## So benutzt du es
+## How to use it
 
-1. **Ebene wählen**: eine Text- oder Formebene auswählen. Die Galerie zeigt sofort alle Effekte mit deinem Text
-2. **Effekt, Look oder Combo anklicken**: Der Effekt wird direkt angewendet. Es entsteht eine Gruppe
-   *„MS Render · …“* mit deiner Ebene und einer Ebene pro Effekt
-3. **Anpassen**: Feinschliff unter *Settings* oder durch Ziehen in der Vorschau, dann **Update**
-   - **Live** überträgt Änderungen sofort
-   - **Update when the text changes** (unter *Tools*) rechnet neu, sobald du den Text änderst
-4. **Weitere Texte**: Jeder Text bekommt seine eigene Gruppe. Ein fertig gerenderter Text bleibt, wie er ist
-5. **Später wieder bearbeiten**: Gruppe auswählen, das Panel lädt ihren Stapel mit allen Einstellungen
-6. **Exportieren**: unter *Export for print*
+1. **Pick a layer**: select a text or shape layer. The gallery immediately shows every effect with your text
+2. **Click an effect, look or combo**: the effect is applied right away. A group
+   *"MS Render · …"* is created with your layer and one layer per effect
+3. **Adjust**: fine-tune under *Settings* or by dragging in the preview, then **Update**
+   - **Live** applies changes right away
+   - **Update when the text changes** (under *Tools*) recomputes as soon as you edit the text
+4. **More texts**: every text gets its own group. A finished text stays as it is
+5. **Edit later**: select the group and the panel loads its stack with all settings
+6. **Export**: under *Export for print*
 
-**Tipp:** Passt ein Effekt nicht auf die Arbeitsfläche, vergrößert **Expand canvas** sie automatisch.
+**Tip:** if an effect doesn't fit on the canvas, **Expand canvas** enlarges it automatically.
 
-## Projektstruktur
+## Project structure
 
 ```
-render/              Das Plugin (wird so in Photoshop geladen)
-  manifest.json      Plugin-Beschreibung
-  index.html         Panel-Oberfläche
-  main.js            Photoshop-Anbindung (Gruppe, XMP, Live-Text, Export, Selbsttest)
-  engine.js          Kern: Distanzfelder, Chrome-Extrude-Renderer
-  effects.js         Alle 25 Effekte, Looks, Stapel und Combos
-  preview/           Live-Vorschau und Galerie (WebView; fx.js erzeugt tools/bundle.js)
-install-mac.sh       Bündelt, packt (.ccx) und installiert das Plugin
-tools/               Bundle-Schritt, Prüfskript, Showcase-Renderer, Vorschau-Testseite
-docs/images/         Bilder dieser README
+render/              The plugin (loaded into Photoshop as is)
+  manifest.json      Plugin description
+  index.html         Panel UI
+  ms-ui.js/.css      Shared Morgenstern controls and design
+  main.js            Photoshop side (group, XMP, live text, export, self-test)
+  engine.js          Core: distance fields, Chrome Extrude renderer
+  effects.js         All 25 effects, looks, stacks and combos
+  preview/           Live preview and gallery (WebView; fx.js is built by tools/bundle.js)
+install-mac.sh       Bundles, packs (.ccx) and installs the plugin
+tools/               Bundle step, check script, showcase renderer, preview test page, browser preview of the panel
+docs/images/         Images of this README
 ```
 
 ```bash
-node tools/qa-check.js              # Engine-Prüfungen ohne Photoshop (alle Effekte, Combos, Grenzfälle)
-python3 tools/showcase-server.py    # dann die angezeigte Adresse öffnen: erzeugt die README-Bilder neu
+node tools/qa-check.js              # engine checks without Photoshop (all effects, combos, edge cases)
+python3 tools/showcase-server.py    # then open the address it prints: rebuilds the README images
 ```
 
-Im Panel prüft **Self-test** (unter *Tools*) 142 Fälle automatisch gegen das echte Photoshop-Ergebnis.
-Er legt dafür ein eigenes Testdokument an.
+In the panel, **Self-test** (under *Tools*) checks 142 cases automatically against the real Photoshop
+result. It creates its own test document for that.
 
-## Fehler gefunden? Ideen?
+## Found a bug? Got an idea?
 
-Melde dich gern! Am einfachsten über **[Issues](https://github.com/M0rgenst3rn/ms-render/issues)** hier auf GitHub:
-**New issue** klicken und kurz beschreiben, was passiert ist. Hilfreich sind Photoshop-Version, Betriebssystem
-und gern ein Screenshot. Dafür brauchst du nur ein kostenloses GitHub-Konto. Verbesserungsvorschläge und
-Wünsche für neue Funktionen sind genauso willkommen.
+Get in touch! The easiest way is **[Issues](https://github.com/M0rgenst3rn/ms-render/issues)** here on GitHub:
+click **New issue** and briefly describe what happened. Your Photoshop version, operating system and a
+screenshot help a lot. All you need is a free GitHub account. Suggestions and feature requests are just as
+welcome.
 
-## Lizenz
+## License
 
-[MIT](LICENSE): Du darfst den Code frei ansehen, verändern, weitergeben und auch kommerziell nutzen.
-Einzige Bedingung: Der Lizenzhinweis bleibt in Kopien enthalten.
+[MIT](LICENSE): you may freely read, change, share and also use the code commercially.
+The only condition: the license notice stays in copies.
 
-Adobe und Photoshop sind Marken von Adobe Inc. Dieses Projekt ist unabhängig und steht in keiner
-Verbindung zu Adobe.
+Adobe and Photoshop are trademarks of Adobe Inc. This project is independent and not affiliated with Adobe.
 
 ---
 
 <p align="center"><sub>Morgenstern Render<br>
-Entwickelt von Linus Leinberger</sub></p>
+Made by Linus Leinberger</sub></p>

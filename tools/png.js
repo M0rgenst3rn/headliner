@@ -1,4 +1,4 @@
-// Minimaler PNG-Encoder (RGB/RGBA, 8 Bit) für Test-Renderings und Icons.
+// Minimal PNG encoder (RGB/RGBA, 8 bit) for test renderings and icons.
 const zlib = require("zlib");
 
 const CRC_TABLE = new Int32Array(256).map((_, n) => {
