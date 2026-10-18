@@ -380,19 +380,32 @@ function tile(key, label, title, onClick, cls) {
 function buildGallery() {
   const grid = $("fxGrid");
   grid.innerHTML = "";
-  for (const e of FX.EFFECTS) {
-    const t = tile("fx:" + e.id, e.name, `${e.name} – click to apply (replaces the effects, your look stays) · ⌥-click: swap only the selected effect`, (ev) => effectClicked(e.id, !!(ev && ev.altKey)));
-    t.dataset.effect = e.id;
-    grid.appendChild(t);
+  // grouped by what an effect does to the layer – the same words the stack uses
+  const ZONES = [["base", "Looks", "replace the layer's look"], ["behind", "Behind", "the text"], ["above", "On top", "of the text"]];
+  for (const [zone, title, note] of ZONES) {
+    const list = FX.EFFECTS.filter((e) => FX.zoneOf(e.id) === zone);
+    if (!list.length) continue;
+    const h = document.createElement("div");
+    h.className = "fx-h";
+    h.innerHTML = `<span class="t">${esc(title)}</span><span class="n">${esc(note)}</span>`;
+    grid.appendChild(h);
+    for (const e of list) addEffectTile(grid, e);
   }
   const cg = $("comboGrid");
   cg.innerHTML = "";
   for (const n of Object.keys(FX.COMBOS)) cg.appendChild(tile("combo:" + n, n, `${n}: ${stackLabel(FX.comboStack(n))} – click to apply (your look stays)`, () => comboClicked(n)));
 }
+function addEffectTile(grid, e) {
+  {
+    const t = tile("fx:" + e.id, e.name, `${e.name} – click to apply (replaces the effects, your look stays) · ⌥-click: swap only the selected effect`, (ev) => effectClicked(e.id, !!(ev && ev.altKey)));
+    t.dataset.effect = e.id;
+    grid.appendChild(t);
+  }
+}
 function buildLooks() {
   const grid = $("lookGrid"), fx = fxDef();
   grid.innerHTML = "";
-  $("lookSection").className = $("lookSection").className.replace(/ hidden/g, "") + (fx ? "" : " hidden");
+  $("lookSection").className = "sub-sec" + (fx && Object.keys(fx.presets || {}).length ? "" : " hidden");
   if (!fx) return;
   $("lookTitle").textContent = `${fx.name} looks`;
   for (const n of Object.keys(fx.presets || {})) grid.appendChild(tile("pr:" + fx.id + ":" + n, n, `${n} – click to apply`, () => applyPreset(n), "look"));
@@ -402,7 +415,7 @@ function markActive() {
   for (const t of document.querySelectorAll("#fxGrid .fx-tile")) t.className = "fx-tile" + (e && t.dataset.effect === e.effect ? " active" : "") + (addMode ? " adding" : "");
   const fx = fxDef();
   $("effectName").textContent = fx ? fx.name : "No effect";
-  $("effectMode").textContent = fx ? { replace: "replaces the look", behind: "behind the layer", above: "on top of the layer" }[fx.mode] : "";
+  $("effectMode").textContent = fx ? { replace: "replaces the look", behind: "behind the layer", above: "on top of the layer" }[fx.mode] : "Add an effect in Effects";
   $("addFx").className = addMode ? "btn small add-on" : "btn small";
 }
 // the stack changed: rebuild everything that depends on it
@@ -470,7 +483,7 @@ function buildStackList() {
   if (!entries.length) {
     const empty = document.createElement("div");
     empty.className = "stack-empty";
-    empty.textContent = "No effects – click one below.";
+    empty.textContent = "No effects yet – click one in Effects.";
     box.appendChild(empty);
   }
   const zoneIdx = (e) => entries.filter((x) => FX.zoneOf(x.effect) === FX.zoneOf(e.effect)).indexOf(e);
@@ -481,8 +494,8 @@ function buildStackList() {
     row.className = "stack-row" + (e.uid === state.sel ? " sel" : "") + (e.on ? "" : " off");
     row.innerHTML = `<span class="eye" title="Show / hide this effect">${e.on ? "●" : "○"}</span><span class="nm">${esc(fx.name)}</span><span class="zone">${ZONE_LABEL[FX.zoneOf(e.effect)]}</span>` +
       `<span class="bt up" title="Move up">▲</span><span class="bt dn" title="Move down">▼</span><span class="bt rm" title="Remove">✕</span>`;
-    row.querySelector(".nm").addEventListener("click", () => { state.sel = e.uid; addMode = false; rebuildForStack(); });
-    row.querySelector(".zone").addEventListener("click", () => { state.sel = e.uid; addMode = false; rebuildForStack(); });
+    row.querySelector(".nm").addEventListener("click", () => { state.sel = e.uid; addMode = false; rebuildForStack(); showTab("settings"); });
+    row.querySelector(".zone").addEventListener("click", () => { state.sel = e.uid; addMode = false; rebuildForStack(); showTab("settings"); });
     row.querySelector(".eye").addEventListener("click", () => { e.on = !e.on; commit(false); });
     const up = row.querySelector(".up"), dn = row.querySelector(".dn");
     if (zoneIdx(e) === 0) up.className += " dis"; else up.addEventListener("click", () => moveEntry(e.uid, -1));
@@ -639,7 +652,7 @@ async function applyRender(mode, pOverride) {
   if (live && !t.group) return;   // Live never adds an effect to a plain layer (selection may have changed)
   const p = pOverride || renderParams();
   const enabled = p.stack.entries.filter((e) => e.on).length;
-  if (!enabled && !t.group) return setStatus("The stack has no active effect – click one below.", true);
+  if (!enabled && !t.group) return setStatus("The stack has no active effect – click one in Effects.", true);
   if (!p.stack.entries.length && t.group) return removeRender();
   busy = true;
   setStatus(live ? "Live update…" : `Rendering ${stackLabel(p.stack)}…`);
@@ -1038,16 +1051,34 @@ function buildControls() {
   };
   $("controlsHint").textContent = hints[fx.id] || "Sizes in % of the text height, so a look scales with your text.";
 }
-const SEC_KEY = "msrender.sections.v1";
-const SEC_DEFAULT = { effects: true, looks: true, settings: true, combos: false, export: false, tools: false };
+// Tabs below the stack: effects, combos, the selected effect's settings, export
+const TAB_KEY = "msrender.tab.v1";
+function showTab(name) {
+  if (!["effects", "combos", "settings", "export"].includes(name)) name = "effects";
+  UI.syncSeg($("tabs"), name);
+  document.querySelectorAll(".pane").forEach((p) => { p.className = p.getAttribute("data-pane") === name ? "pane" : "pane hidden"; });
+  $("scroller").scrollTop = 0;
+  try { localStorage.setItem(TAB_KEY, name); } catch (e) { /* ignore */ }
+}
+function toggleTools(open) {
+  $("toolsMenu").className = open ? "menu" : "menu hidden";
+  $("toolsBtn").className = open ? "ibtn more-btn on" : "ibtn more-btn";
+}
 function buildUI() {
-  UI.sections(SEC_KEY, SEC_DEFAULT);
   buildGallery();
   rebuildForStack();
+  document.querySelectorAll("#tabs .seg-btn").forEach((b) => b.addEventListener("click", () => showTab(b.getAttribute("data-v"))));
+  let tab = "effects";
+  try { tab = localStorage.getItem(TAB_KEY) || "effects"; } catch (e) { /* ignore */ }
+  showTab(tab);
+  $("toolsBtn").addEventListener("click", (ev) => { ev.stopPropagation(); toggleTools($("toolsMenu").className.indexOf("hidden") >= 0); });
+  $("toolsMenu").addEventListener("click", (ev) => ev.stopPropagation());
+  document.addEventListener("click", () => toggleTools(false));
   $("addFx").addEventListener("click", () => {
     addMode = !addMode;
     markActive();
-    setStatus(addMode ? "Click an effect below to add it to the stack." : "");
+    if (addMode) showTab("effects");
+    setStatus(addMode ? "Click an effect to add it to the stack." : "");
   });
   UI.bindSwitch("expandCanvas", (on) => { state.expandCanvas = on; saveState(); });
   document.querySelectorAll("#bgSeg .seg-btn").forEach((el) => el.addEventListener("click", () => {
@@ -1062,12 +1093,13 @@ function buildUI() {
   UI.bindSwitch("live", (on) => { liveLast = null; if (on && liveTarget()) applyRender("live"); });
   UI.bindSwitch("autoUpdate", (on) => { try { localStorage.setItem("msrender.auto", on ? "1" : "0"); } catch (err) { /* ignore */ } });
   $("resetAll").addEventListener("click", () => {
+    toggleTools(false);
     const e = selEntry();
     if (!e) return;
     e.values = FX.values(e.effect, {}); delete state.fx[e.effect];
     syncUI(); changed(); setStatus(`${FX.BY_ID[e.effect].name} reset to defaults.`);
   });
-  $("selfTest").addEventListener("click", runSelfTest);
+  $("selfTest").addEventListener("click", () => { toggleTools(false); runSelfTest(); });
   $("exportBtn").addEventListener("click", () => {
     const cm = parseFloat(String($("expWidth").value).replace(",", "."));
     exportPNG({ scope: $("expScope").value, widthCm: isNaN(cm) ? 0 : cm, hard: $("expHard").checked });

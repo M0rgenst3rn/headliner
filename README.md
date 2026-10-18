@@ -30,7 +30,7 @@ Morgenstern Render recomputes the effect automatically.
 - **Gallery with your own text**: every thumbnail shows your selected lettering
 - **Live preview** in the panel, Chrome Extrude on the GPU in a few milliseconds
 - **Live text stays live**: change the text and the effect follows
-- **A tidy panel**: collapsible sections, a colour palette, the main settings on top, everything else under *More settings*
+- **A tidy panel**: preview and stack on top, below them tabs for *Effects*, *Combos*, *Settings* and *Export*. Click an effect in the stack and its settings open
 - **Export for print**: transparent PNG, 300 dpi, width in cm, hard edges for **DTF**
 - **Self-test**: 142 checks against the real Photoshop result
 
@@ -66,7 +66,7 @@ flat text.
 <p align="center"><img src="docs/images/stack-steps.png" alt="Building a stack"></p>
 
 How to build a stack:
-1. **Pick a look**, e.g. Chrome Extrude, and set the material to *Silver* under *Settings*
+1. **Pick a look**, e.g. Chrome Extrude, and set the material to *Silver* in the *Settings* tab
 2. Click **+ Add effect**, then **Fire**
 3. Click **+ Add effect**, then **Glow**
 4. In the stack, change the order with **▲▼**, hide with **●**, remove with **✕**. Click an entry to see its
@@ -116,7 +116,7 @@ Build these stacks yourself with **+ Add effect**:
 
 ## Export for print
 
-Under **Export for print** you save the selected group or all visible layers as PNG:
+In the **Export** tab you save the selected group or all visible layers as PNG:
 - **Format**: transparent and trimmed to the design
 - **Size**: 300 dpi, you enter the print width in cm
 - **Hard edges (DTF)**: removes every semi-transparent pixel. DTF printers would otherwise turn them into halftone fringes
@@ -147,12 +147,12 @@ The script needs [Node.js](https://nodejs.org) for the preview's bundle step.
 1. **Pick a layer**: select a text or shape layer. The gallery immediately shows every effect with your text
 2. **Click an effect, look or combo**: the effect is applied right away. A group
    *"MS Render · …"* is created with your layer and one layer per effect
-3. **Adjust**: fine-tune under *Settings* or by dragging in the preview, then **Update**
+3. **Adjust**: fine-tune in the *Settings* tab or by dragging in the preview, then **Update**
    - **Live** applies changes right away
-   - **Update when the text changes** (under *Tools*) recomputes as soon as you edit the text
+   - **Update when the text changes** (in the **⋯** menu) recomputes as soon as you edit the text
 4. **More texts**: every text gets its own group. A finished text stays as it is
 5. **Edit later**: select the group and the panel loads its stack with all settings
-6. **Export**: under *Export for print*
+6. **Export**: in the *Export* tab
 
 **Tip:** if an effect doesn't fit on the canvas, **Expand canvas** enlarges it automatically.
 
@@ -183,7 +183,7 @@ node tools/quality-bench.js --out quality-out/after --baseline quality-out/befor
 node tools/gpu-compare.js           # GPU preview vs. CPU result in headless Chromium (needs Playwright)
 ```
 
-In the panel, **Self-test** (under *Tools*) checks 142 cases automatically against the real Photoshop
+In the panel, **Self-test** (in the **⋯** menu) checks 142 cases automatically against the real Photoshop
 result. It creates its own test document for that.
 
 ## Found a bug? Got an idea?
