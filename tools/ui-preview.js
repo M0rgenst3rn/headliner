@@ -1,5 +1,5 @@
 // Shows the panel UI in a browser (without Photoshop): Photoshop/UXP are mocked.
-// Open ui-preview.html; it names the plugin folder in data-plugin (e.g. "../glow/").
+// Open ui-preview.html; it names the plugin folder in data-plugin (e.g. "../render/").
 const SCRIPT_END = "</" + "script>";
 const f = document.getElementById("frame");
 const base = f.getAttribute("data-plugin");
