@@ -6,7 +6,7 @@
   <b>Retro and modern 3D text effects for Photoshop: chrome, gold, fire, lightning, glow and much more.<br>
   Rendered straight from your live text – the text stays editable.</b><br>
   <sub>Photoshop 2023 (24.2) or newer · UXP panel</sub><br>
-  <sub>Free Photoshop tools by <b>Morgenstern</b> · <a href="https://github.com/M0rgenst3rn/ms-distress">Morgenstern Distress</a> · <a href="https://github.com/M0rgenst3rn/ms-printer">Morgenstern Printer</a> · <b>Morgenstern Render</b> · <a href="https://github.com/M0rgenst3rn/ms-phase">Morgenstern Phase</a> · <a href="https://github.com/M0rgenst3rn/ms-glow">Morgenstern Glow</a> · <a href="https://github.com/M0rgenst3rn/ms-gradients">Morgenstern Gradients</a></sub>
+  <sub>Free Photoshop tools by <b>Morgenstern</b> · <a href="https://github.com/M0rgenst3rn/ms-distress">Morgenstern Distress</a> · <a href="https://github.com/M0rgenst3rn/ms-printer">Morgenstern Printer</a> · <b>Morgenstern Render</b> · <a href="https://github.com/M0rgenst3rn/ms-phase">Morgenstern Phase</a> · <a href="https://github.com/M0rgenst3rn/ms-glow">Morgenstern Glow</a> · <a href="https://github.com/M0rgenst3rn/ms-gradients">Morgenstern Gradients</a> · <a href="https://github.com/M0rgenst3rn/ms-grids">Morgenstern Grids</a></sub>
 </p>
 
 ---
