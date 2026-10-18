@@ -629,7 +629,9 @@ async function renderInto(ctx, doc, t, p) {
   rendered.set(group.id, csig);
   const cropped = L.some((l) => l.cropped);
   log("  rendered", { stack: stackLabel(p.stack), group: group.name, layers: L.length, hidden: L.filter((l) => l.off).length, cropped });
-  return { group, cropped, layers: L.length, empty };
+  // very large areas are rendered at a lower internal resolution and scaled up (see effects.js render)
+  const scale = Math.min(1, ...res.layers.map((l) => l.scale || 1));
+  return { group, cropped, layers: L.length, empty, scale };
 }
 
 const rendered = new Map(); // groupId -> source signature at last render
@@ -684,7 +686,8 @@ async function applyRender(mode, pOverride) {
     if (now && now.group && res && res.group && now.group.id === res.group.id) { appliedKey = stackKey(p.stack); loadedGroupId = res.group.id; }
     setTargetUI(now);
     const emptyNote = res && res.empty && res.empty.length ? ` – ${res.empty.join(", ")} draws nothing with these settings` : "";
-    setStatus(`${mode === "auto" ? "Updated" : stackLabel(p.stack)} – ${secs}s${res && res.cropped ? " – cropped at the canvas edge (enable “Expand canvas”)" : ""}${emptyNote}.`, !!emptyNote);
+    const scaleNote = res && res.scale < 0.999 ? ` – very large area: rendered at ${Math.round(res.scale * 100)} % and scaled up` : "";
+    setStatus(`${mode === "auto" ? "Updated" : stackLabel(p.stack)} – ${secs}s${res && res.cropped ? " – cropped at the canvas edge (enable “Expand canvas”)" : ""}${scaleNote}${emptyNote}.`, !!emptyNote);
   }
   if (livePending && $("live").checked) { livePending = false; applyRender("live"); }
 }

@@ -1844,6 +1844,70 @@ function values(effectId, v) {
 }
 
 // src: { alpha, w, h, rgb? } -> { rgba, w, h, offsetX, offsetY, box }
+const MAX_PX = 40e6;   // working area at full resolution (Chrome Extrude peaks at about 2 GB)
+// area-average downscale of a source (alpha + optional rgb) to w2 × h2
+function downscaleSrc(src, w2, h2) {
+  const { w, h } = src, fx = w / w2, fy = h / h2, alpha = new Uint8Array(w2 * h2), rgb = src.rgb ? new Uint8Array(w2 * h2 * 3) : null;
+  for (let y = 0; y < h2; y++) {
+    const ya = Math.floor(y * fy), yb = Math.max(ya + 1, Math.min(h, Math.floor((y + 1) * fy)));
+    for (let x = 0; x < w2; x++) {
+      const xa = Math.floor(x * fx), xb = Math.max(xa + 1, Math.min(w, Math.floor((x + 1) * fx)));
+      let a = 0, r = 0, g = 0, b = 0;
+      for (let yy = ya; yy < yb; yy++) for (let xx = xa; xx < xb; xx++) {
+        const i = yy * w + xx, ai = src.alpha[i];
+        a += ai;
+        if (rgb) { r += src.rgb[i * 3] * ai; g += src.rgb[i * 3 + 1] * ai; b += src.rgb[i * 3 + 2] * ai; }
+      }
+      const o = y * w2 + x, n = (xb - xa) * (yb - ya);
+      alpha[o] = Math.round(a / n);
+      if (rgb && a > 0) { rgb[o * 3] = r / a; rgb[o * 3 + 1] = g / a; rgb[o * 3 + 2] = b / a; }
+    }
+  }
+  return { alpha, rgb, w: w2, h: h2 };
+}
+// Catmull-Rom upscale of straight-alpha RGBA (filtered premultiplied, so edges don't get dark fringes)
+function upscaleRGBA(src, w, h, W, H) {
+  const cr = (t) => { t = Math.abs(t); return t < 1 ? 1.5 * t * t * t - 2.5 * t * t + 1 : t < 2 ? -0.5 * t * t * t + 2.5 * t * t - 4 * t + 2 : 0; };
+  const taps = (n, N) => {   // for each target position: 4 source indices and weights
+    const idx = new Int32Array(N * 4), wt = new Float32Array(N * 4);
+    for (let X = 0; X < N; X++) {
+      const sx = (X + 0.5) * n / N - 0.5, x0 = Math.floor(sx);
+      let sum = 0;
+      for (let k = 0; k < 4; k++) { const xi = x0 - 1 + k; idx[X * 4 + k] = Math.max(0, Math.min(n - 1, xi)); sum += (wt[X * 4 + k] = cr(sx - xi)); }
+      for (let k = 0; k < 4; k++) wt[X * 4 + k] /= sum;
+    }
+    return { idx, wt };
+  };
+  const tx = taps(w, W), ty = taps(h, H);
+  const pm = new Float32Array(w * h * 4);
+  for (let i = 0; i < w * h; i++) { const a = src[i * 4 + 3] / 255; pm[i * 4] = src[i * 4] * a; pm[i * 4 + 1] = src[i * 4 + 1] * a; pm[i * 4 + 2] = src[i * 4 + 2] * a; pm[i * 4 + 3] = src[i * 4 + 3]; }
+  const mid = new Float32Array(W * h * 4);   // horizontal pass
+  for (let y = 0; y < h; y++) for (let X = 0; X < W; X++) for (let c = 0; c < 4; c++) {
+    let acc = 0;
+    for (let k = 0; k < 4; k++) acc += pm[(y * w + tx.idx[X * 4 + k]) * 4 + c] * tx.wt[X * 4 + k];
+    mid[(y * W + X) * 4 + c] = acc;
+  }
+  const out = new Uint8ClampedArray(W * H * 4);
+  for (let Y = 0; Y < H; Y++) for (let X = 0; X < W; X++) {
+    const o = (Y * W + X) * 4;
+    let r = 0, g = 0, b = 0, a = 0;
+    for (let k = 0; k < 4; k++) {
+      const j = (ty.idx[Y * 4 + k] * W + X) * 4, f = ty.wt[Y * 4 + k];
+      r += mid[j] * f; g += mid[j + 1] * f; b += mid[j + 2] * f; a += mid[j + 3] * f;
+    }
+    a = Math.max(0, Math.min(255, a));
+    if (a > 0.5) { const k = 255 / a; out[o] = r * k; out[o + 1] = g * k; out[o + 2] = b * k; out[o + 3] = a; }
+  }
+  return out;
+}
+function renderScaled(src, effectId, v, k) {
+  const w2 = Math.max(8, Math.round(src.w * k)), h2 = Math.max(8, Math.round(src.h * k));
+  const r = render(downscaleSrc(src, w2, h2), effectId, v);
+  if (!r) return null;
+  const kx = w2 / src.w, ky = h2 / src.h, W = Math.round(r.w / kx), H = Math.round(r.h / ky);
+  const box = { x0: r.box.x0 / kx, y0: r.box.y0 / ky, x1: r.box.x1 / kx, y1: r.box.y1 / ky, w: r.box.w / kx, h: r.box.h / ky };
+  return { rgba: upscaleRGBA(r.rgba, r.w, r.h, W, H), w: W, h: H, offsetX: Math.round(r.offsetX / kx), offsetY: Math.round(r.offsetY / ky), box, scale: Math.min(kx, ky) };
+}
 function render(src, effectId, v) {
   const fx = BY_ID[effectId];
   if (!fx) throw new Error("Unknown effect " + effectId);
@@ -1851,7 +1915,10 @@ function render(src, effectId, v) {
   const lay = layoutFor(src.alpha, src.w, src.h, effectId, v);
   if (!lay) return null;
   const n = lay.need;
-  if ((src.w + n.left + n.right) * (src.h + n.top + n.bottom) > 80e6) throw new Error(fx.name + ": result would be too large – lower size/length");
+  // Very large areas: render at a lower internal resolution and scale the result back up (the effects
+  // work in % of the text height, so the look stays the same). Keeps memory at about 100 bytes × MAX_PX.
+  const area = (src.w + n.left + n.right) * (src.h + n.top + n.bottom);
+  if (area > MAX_PX) return renderScaled(src, effectId, v, Math.sqrt(MAX_PX / area) * 0.97);
   const P = E.pad(src.alpha, src.w, src.h, n.left, n.top, n.right, n.bottom);
   let rgb = null;
   if (src.rgb) {
@@ -1910,7 +1977,7 @@ function renderStack(src, stack) {
   let sil = { alpha: src.alpha, rgb: src.rgb, w: src.w, h: src.h, x: 0, y: 0 };
   const place = (e, r, ox, oy) => {
     const x = ox - r.offsetX, y = oy - r.offsetY;
-    out[e.uid] = { uid: e.uid, effect: e.effect, zone: zoneOf(e.effect), rgba: r.rgba, w: r.w, h: r.h, x, y,
+    out[e.uid] = { uid: e.uid, effect: e.effect, zone: zoneOf(e.effect), rgba: r.rgba, w: r.w, h: r.h, x, y, scale: r.scale || 1,
       box: { x0: r.box.x0 + x, y0: r.box.y0 + y, w: r.box.w, h: r.box.h } };
   };
   if (base) {
