@@ -10,7 +10,15 @@
   <div class="top">
     <div class="header">
       <span class="brand"><span class="dot"></span><span class="brand-ms">MS</span><span class="brand-name">Render</span></span>
-      <span id="sourceName" class="target-name">–</span>
+      <div class="head-right"><span id="sourceName" class="target-name">–</span>
+        <div class="ibtn more-btn" id="toolsBtn" title="Options, reset, self-test"><span></span><span></span><span></span></div></div>
+    </div>
+    <div id="toolsMenu" class="menu hidden">
+      <div class="switch line" data-for="autoUpdate" title="Re-render automatically when the text changes"><span class="knob"></span><span class="sw-label">Update when the text changes</span></div>
+      <input type="checkbox" id="autoUpdate" class="hidden">
+      <div class="menu-sep"></div>
+      <div class="menu-item" id="resetAll" title="Default settings for the selected effect">Reset the selected effect</div>
+      <div class="menu-item" id="selfTest" title="Creates a test document and checks every effect">Self-test</div>
     </div>
 
     <div id="previewBox" class="preview render-preview"></div>
@@ -35,65 +43,52 @@
 
     <div class="stack-head">
       <span class="stack-title">Stack</span><span id="stackInfo" class="stack-info"></span>
-      <div class="btn small" id="addFx" title="Add another effect: click this, then an effect below">+ Add effect</div>
+      <div class="btn small" id="addFx" title="Add another effect: click this, then an effect">+ Add effect</div>
     </div>
     <div id="stackList" class="stack-list"></div>
+
+    <div class="seg tabs" id="tabs">
+      <div class="seg-btn" data-v="effects">Effects</div>
+      <div class="seg-btn" data-v="combos">Combos</div>
+      <div class="seg-btn" data-v="settings">Settings</div>
+      <div class="seg-btn" data-v="export">Export</div>
+    </div>
   </div>
 
-  <div class="scroller">
+  <div class="scroller" id="scroller">
   <div class="wrap">
-    <div class="sec" data-sec="effects">
-      <div class="sec-head"><span class="sec-title">Effects</span><span class="sec-meta">click to apply</span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>
-      <div class="sec-body"><div id="fxGrid" class="fx-grid"></div></div>
+    <div class="pane" data-pane="effects">
+      <div id="fxGrid" class="fx-grid"></div>
     </div>
 
-    <div class="sec" data-sec="looks" id="lookSection">
-      <div class="sec-head"><span class="sec-title" id="lookTitle">Looks</span><span class="sec-meta"></span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>
-      <div class="sec-body"><div id="lookGrid" class="fx-grid"></div></div>
+    <div class="pane" data-pane="combos">
+      <div class="pane-note">Several effects at once. Your look stays – a combo adds its effects around it.</div>
+      <div id="comboGrid" class="fx-grid"></div>
     </div>
 
-    <div class="sec" data-sec="settings">
-      <div class="sec-head"><span class="sec-title">Settings</span><span id="effectName" class="sec-meta">–</span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>
-      <div class="sec-body">
-        <div id="effectMode" class="effect-mode"></div>
-        <div id="controls"></div>
-        <div class="hint" id="controlsHint"></div>
-        <div class="switch line" data-for="expandCanvas"><span class="knob"></span><span class="sw-label">Expand canvas when the effect doesn't fit</span></div>
-        <input type="checkbox" id="expandCanvas" class="hidden">
+    <div class="pane" data-pane="settings">
+      <div class="set-head"><span id="effectName" class="set-name">–</span><span id="effectMode" class="set-mode"></span></div>
+      <div class="sub-sec" id="lookSection">
+        <div class="sub-title" id="lookTitle">Looks</div>
+        <div id="lookGrid" class="fx-grid looks"></div>
       </div>
+      <div id="controls"></div>
+      <div class="hint" id="controlsHint"></div>
+      <div class="switch line" data-for="expandCanvas"><span class="knob"></span><span class="sw-label">Expand canvas when the effect doesn't fit</span></div>
+      <input type="checkbox" id="expandCanvas" class="hidden">
     </div>
 
-    <div class="sec" data-sec="combos">
-      <div class="sec-head"><span class="sec-title">Combos</span><span class="sec-meta">several effects at once</span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>
-      <div class="sec-body"><div id="comboGrid" class="fx-grid"></div></div>
-    </div>
-
-    <div class="sec" data-sec="export">
-      <div class="sec-head"><span class="sec-title">Export for print</span><span class="sec-meta">PNG, 300 dpi</span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>
-      <div class="sec-body">
-        <div class="field stack"><span class="field-label">What</span><div class="seg" id="expScopeSeg">
-          <div class="seg-btn" data-v="group">Selected layer</div>
-          <div class="seg-btn" data-v="all">All visible</div>
-        </div></div>
-        <input type="text" id="expScope" class="hidden" value="group">
-        <div class="row"><span class="field-label">Print width</span><input id="expWidth" class="num" type="text" placeholder="as is"><span class="muted">cm</span></div>
-        <div class="switch line" data-for="expHard" title="DTF printers turn semi-transparent pixels (glows, soft shadows) into halftone fringes"><span class="knob"></span><span class="sw-label">Hard edges (DTF)</span></div>
-        <input type="checkbox" id="expHard" class="hidden">
-        <div class="row"><div class="btn" id="exportBtn">Export PNG…</div></div>
-        <div class="hint">Transparent background, trimmed to the design, 300 dpi. Works on a copy – your document stays untouched.</div>
-      </div>
-    </div>
-
-    <div class="sec" data-sec="tools">
-      <div class="sec-head"><span class="sec-title">Tools</span><span class="sec-meta"></span><span class="chev c-open">–</span><span class="chev c-closed">+</span></div>
-      <div class="sec-body">
-        <div class="switch line" data-for="autoUpdate" title="Re-render automatically when the text changes"><span class="knob"></span><span class="sw-label">Update when the text changes</span></div>
-        <input type="checkbox" id="autoUpdate" class="hidden">
-        <div class="row tools-row">
-          <div class="btn small ghost" id="resetAll" title="Default settings for the selected effect">Reset settings</div>
-          <div class="btn small ghost" id="selfTest" title="Creates a test document and checks every effect">Self-test</div>
-        </div>
-      </div>
+    <div class="pane" data-pane="export">
+      <div class="pane-note">PNG for print: transparent background, trimmed to the design, 300 dpi. Works on a copy – your document stays untouched.</div>
+      <div class="field stack"><span class="field-label">What</span><div class="seg" id="expScopeSeg">
+        <div class="seg-btn" data-v="group">Selected layer</div>
+        <div class="seg-btn" data-v="all">All visible</div>
+      </div></div>
+      <input type="text" id="expScope" class="hidden" value="group">
+      <div class="row"><span class="field-label">Print width</span><input id="expWidth" class="num" type="text" placeholder="as is"><span class="muted">cm</span></div>
+      <div class="switch line" data-for="expHard" title="DTF printers turn semi-transparent pixels (glows, soft shadows) into halftone fringes"><span class="knob"></span><span class="sw-label">Hard edges (DTF)</span></div>
+      <input type="checkbox" id="expHard" class="hidden">
+      <div class="row"><div class="btn" id="exportBtn">Export PNG…</div></div>
     </div>
   </div>
   </div>

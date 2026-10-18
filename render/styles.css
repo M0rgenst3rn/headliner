@@ -3,16 +3,55 @@
 .render-preview webview { width: 100%; height: 190px; border: none; }
 .preview-under { margin-top: 6px; }
 
-/* effect tiles: click = apply */
-.fx-grid { display: flex; flex-direction: row; flex-wrap: wrap; margin: 0 -3px; }
-.fx-tile { box-sizing: border-box; width: 47%; margin: 1.5%; padding: 3px; border: 1px solid #141b2c; border-radius: 8px; cursor: pointer; background-color: #0b0f1a; }
-.fx-tile:hover { border-color: #2a3a66; }
+/* header: target name + options menu */
+.head-right { display: flex; flex-direction: row; align-items: center; }
+.ibtn { display: flex; flex-direction: row; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 6px; border-radius: 7px; cursor: pointer; }
+.ibtn:hover { background-color: #121a2e; }
+.more-btn span { width: 3px; height: 3px; border-radius: 2px; margin: 0 1.5px; background-color: #a7b1ca; }
+.more-btn.on { background-color: #1b2a5c; }
+.more-btn.on span, .more-btn:hover span { background-color: #e6ebf7; }
+/* opens in the flow (not over the preview: the preview is a WebView, which always draws on top) */
+.menu { margin: -2px 0 10px; padding: 6px; border-radius: 10px; border: 1px solid #232d48; background-color: #0b1020; }
+.menu.hidden { display: none; }
+.menu .switch.line { margin: 2px 8px; }
+.menu-item { padding: 6px 8px; border-radius: 6px; font-size: 11px; color: #c9d1e6; cursor: pointer; }
+.menu-item:hover { background-color: #16203a; color: #ffffff; }
+.menu-sep { height: 1px; margin: 4px 6px; background-color: #1a2236; }
+
+/* tabs under the stack */
+.tabs { margin-top: 10px; }
+.tabs .seg-btn { padding: 6px 4px; font-weight: 600; }
+.pane.hidden { display: none; }
+.pane-note { font-size: 10px; line-height: 14px; color: #7e89a6; margin: 0 0 8px; }
+.wrap { padding-top: 12px; }
+
+/* effect tiles: click = apply. Three across, grouped by what they do */
+.fx-grid { display: flex; flex-direction: row; flex-wrap: wrap; margin: 0 -1%; }
+.fx-h { width: 98%; margin: 12px 1% 6px; display: flex; flex-direction: row; align-items: center; }
+.fx-h:first-child { margin-top: 0; }
+.fx-h .t { font-size: 11px; font-weight: 600; color: #e6ebf7; }
+.fx-h .n { font-size: 10px; color: #7e89a6; margin-left: 6px; }
+.fx-tile { box-sizing: border-box; width: 31.33%; margin: 0 1% 8px; padding: 2px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
+.fx-tile:hover { border-color: #2a3a66; background-color: #0b0f1a; }
 .fx-tile.active { border-color: #2f5bff; background-color: #101a3a; }
-.fx-tile.adding { border-color: #7b9cff; border-style: dashed; }
-.fx-tile img { width: 100%; height: 66px; border-radius: 5px; background-color: #03050a; }
-.fx-tile .lbl { font-size: 10px; color: #a7b1ca; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 4px 0 1px; }
-.fx-tile.active .lbl { color: #ffffff; }
-.effect-mode { font-size: 10px; color: #7b9cff; margin: -4px 0 4px; }
+.fx-tile.adding { border-color: #2a3a66; border-style: dashed; }
+.fx-tile img { width: 100%; height: 54px; border-radius: 6px; background-color: #03050a; }
+.fx-tile .lbl { font-size: 10px; color: #a7b1ca; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 4px 0 2px; }
+.fx-tile:hover .lbl { color: #e6ebf7; }
+.fx-tile.active .lbl { color: #ffffff; font-weight: 600; }
+
+/* settings of the selected effect */
+.set-head { display: flex; flex-direction: row; align-items: baseline; margin-bottom: 8px; }
+.set-name { font-size: 12px; font-weight: 600; color: #e6ebf7; }
+.set-mode { font-size: 10px; color: #7b9cff; margin-left: 8px; }
+.sub-sec { margin-bottom: 8px; }
+.sub-sec.hidden { display: none; }
+.sub-title { font-size: 10px; color: #7e89a6; margin-bottom: 6px; }
+.looks .fx-tile img { height: 44px; }
+
+/* press feedback */
+.fx-tile, .seg-btn, .menu-item, .ibtn, .btn { transition: transform 120ms ease-out; }
+.fx-tile:active, .seg-btn:active, .ibtn:active, .btn:active { transform: scale(0.97); }
 
 /* effect stack (always visible at the top) */
 .stack-head { display: flex; flex-direction: row; align-items: center; margin-top: 10px; }

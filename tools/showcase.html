@@ -12,13 +12,17 @@
 <script src="../render/preview/fx.js"></script>
 <script>
 const { FX } = window.MSR;
-const FONT = (px) => `italic 900 ${px}px "Arial Black", Arial, sans-serif`;
+const FONT = (px) => `italic 900 ${px}px "Arial Black", "Archivo Black", Arial, sans-serif`;
 const LABEL = (px, w) => `${w || 700} ${px}px Arial, sans-serif`;
 const SAVE = new URLSearchParams(location.search).has("save");
+// Supersampling: everything is rendered SC times larger (the effects scale with the text height) and then
+// scaled down to the final size, so edges, bevels and fine lines come out smooth. ?sc=1 for a quick draft.
+const SC = Math.max(1, Number(new URLSearchParams(location.search).get("sc")) || 3);
 const log = (s) => { document.getElementById("log").textContent = s; };
 
 // text → engine source (alpha + colour), with room for the italic slant
 function textSource(text, px, color) {
+  px *= SC;
   const c = document.createElement("canvas"), x = c.getContext("2d");
   x.font = FONT(px);
   const w = Math.ceil(x.measureText(text).width + px * 0.45), h = Math.ceil(px * 1.12);
@@ -55,14 +59,15 @@ function bg(x, X, Y, W, H, r) {
   x.beginPath(); x.roundRect(X, Y, W, H, r || 14); x.fill();
 }
 function fit(x, img, X, Y, W, H) {
-  const s = Math.min(1, W / img.width, H / img.height), w = img.width * s, h = img.height * s;
+  const iw = img.width / SC, ih = img.height / SC;   // the image's size in final pixels
+  const s = Math.min(1, W / iw, H / ih), w = iw * s, h = ih * s;
   x.drawImage(img, X + (W - w) / 2, Y + (H - h) / 2, w, h);
 }
 function tileGrid(items, cols, tw, th, title) {
   const pad = 16, head = title ? 70 : 0, rows = Math.ceil(items.length / cols);
-  const c = document.createElement("canvas"); c.width = cols * (tw + pad) + pad; c.height = head + rows * (th + pad) + pad;
+  const c = hiCanvas(cols * (tw + pad) + pad, head + rows * (th + pad) + pad);
   const x = c.getContext("2d");
-  x.fillStyle = "#0d0e10"; x.fillRect(0, 0, c.width, c.height);
+  x.fillStyle = "#0d0e10"; x.fillRect(0, 0, c.lw, c.lh);
   if (title) { x.fillStyle = "#f2f2f2"; x.font = FONT(34); x.fillText(title, pad + 4, 50); }
   items.forEach((it, n) => {
     const X = pad + (n % cols) * (tw + pad), Y = head + pad + Math.floor(n / cols) * (th + pad);
@@ -73,7 +78,25 @@ function tileGrid(items, cols, tw, th, title) {
   });
   return c;
 }
-async function save(name, c) {
+// a canvas of w × h final pixels, drawn at SC times the resolution
+function hiCanvas(w, h) {
+  const c = document.createElement("canvas"); c.width = w * SC; c.height = h * SC; c.lw = w; c.lh = h;
+  c.getContext("2d").scale(SC, SC);
+  return c;
+}
+// scales a hiCanvas down to its final size in halving steps (each step averages 2 × 2 pixels)
+function finalOf(c) {
+  let cur = c, w = c.width, h = c.height;
+  while (w / 2 >= c.lw) {
+    const n = document.createElement("canvas"); n.width = Math.round(w / 2); n.height = Math.round(h / 2);
+    const x = n.getContext("2d"); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
+    x.drawImage(cur, 0, 0, n.width, n.height); cur = n; w = n.width; h = n.height;
+  }
+  if (w !== c.lw) { const n = document.createElement("canvas"); n.width = c.lw; n.height = c.lh; const x = n.getContext("2d"); x.imageSmoothingQuality = "high"; x.drawImage(cur, 0, 0, c.lw, c.lh); cur = n; }
+  return cur;
+}
+async function save(name, hi) {
+  const c = hi.lw ? finalOf(hi) : hi;
   document.body.appendChild(c);
   if (!SAVE) return;
   const blob = await new Promise((r) => c.toBlob(r, "image/png"));
@@ -88,10 +111,10 @@ async function run() {
   {
     const src = textSource("MS RENDER", 300, "#ffffff");
     const img = compose(src, S([["star", { count: 5, size: 26, glow: 70 }], ["chromeExtrude", { material: "chrome", depth: 24 }], ["glow", { color: "#5aa8ff", size: 12, intensity: 70, core: 20 }]]));
-    const c = document.createElement("canvas"); c.width = 1800; c.height = 720;
+    const c = hiCanvas(1800, 720);
     const x = c.getContext("2d");
     const g = x.createRadialGradient(900, 330, 40, 900, 360, 1100); g.addColorStop(0, "#2b2f38"); g.addColorStop(1, "#0b0c0e");
-    x.fillStyle = g; x.fillRect(0, 0, c.width, c.height);
+    x.fillStyle = g; x.fillRect(0, 0, 1800, 720);
     fit(x, img, 90, 40, 1620, 520);
     x.textAlign = "center"; x.fillStyle = "#e9e9e9"; x.font = LABEL(34);
     x.fillText("Retro & modern 3D text effects for Photoshop", 900, 625);
