@@ -23,6 +23,8 @@ const DEFAULTS = {
   strokeColor: "#0c0a1e", stroke2: 0, stroke2Color: "#2fa8ff",   // outline + optional second outline
   shadowColor: "#140628", shadowOpacity: 85,
   skyTop: "#0a1440", skyHorizon: "#dff2ff", groundHorizon: "#a86a34", groundBottom: "#4a2c16",   // material "custom"
+  landscape: "flat",      // the horizon line in the reflection: flat | mountains | dunes | mesas | city | waves
+  landHeight: 45, landScale: 100, landShift: 0,   // its height (%), size (%) and position along the horizon (%)
   expandCanvas: true,
 };
 
@@ -55,6 +57,32 @@ function rampFor(p) {
   const hz = Math.max(0.15, Math.min(0.85, (p.horizon === undefined ? 50 : p.horizon) / 100));
   if (Math.abs(hz - 0.5) < 1e-6) return r;
   return r.map(([u, c]) => [u <= 0.5 ? u * 2 * hz : hz + (u - 0.5) * 2 * (1 - hz), c]);
+}
+
+// ---------------------------------------------------------------- landscapes on the horizon
+// Seamless silhouettes (period 1, height 0..1) that raise the ground of the reflection. The GPU shader in
+// preview/index.html has the same functions – keep both in step.
+const LANDSCAPES = [{ id: "flat", name: "Flat" }, { id: "mountains", name: "Mountains" }, { id: "dunes", name: "Dunes" }, { id: "mesas", name: "Mesas" }, { id: "city", name: "City" }, { id: "waves", name: "Waves" }];
+const CITY = [0.35, 0.8, 0.55, 0.95, 0.4, 0.65, 0.3, 0.85, 0.5, 0.7, 0.25, 0.6];
+const fract = (t) => t - Math.floor(t);
+const tri = (t) => 1 - 2 * Math.abs(fract(t) - 0.5);
+const hill = (t) => 0.5 - 0.5 * Math.cos(6.283185307 * t);
+const sat = (t) => Math.max(0, Math.min(1, t));
+function landIndex(id) { const i = LANDSCAPES.findIndex((l) => l.id === id); return i < 0 ? 0 : i; }
+function landH(type, x) {
+  if (type === 1) return 0.55 * Math.pow(tri(x), 1.6) + 0.3 * Math.pow(tri(2 * x + 0.37), 1.4) + 0.15 * tri(5 * x + 0.71);
+  if (type === 2) return 0.6 * Math.pow(hill(x), 1.5) + 0.4 * Math.pow(hill(2 * x + 0.3), 2);
+  if (type === 3) return 0.75 * sat((tri(x) - 0.4) * 6) + 0.25 * sat((tri(3 * x + 0.2) - 0.55) * 8);
+  if (type === 4) return CITY[Math.floor(fract(x * 0.5) * 12) % 12];   // 12 buildings over two periods
+  if (type === 5) return 0.7 * hill(3 * x) + 0.3 * hill(5 * x + 0.4);
+  return 0;
+}
+// how the landscape enters the reflection: u += A * landH(type, xr / P + S), xr = horizontal reflection coordinate
+// (the bevel turns it a little, less than vertically, so the silhouette stays readable)
+function landParams(p) {
+  const type = landIndex(p.landscape);
+  return { type, A: type ? (p.landHeight === undefined ? 45 : p.landHeight) / 100 * 0.45 : 0,
+    P: Math.max(0.05, (p.landScale === undefined ? 100 : p.landScale) / 100 * 0.9), S: (p.landShift || 0) / 100 };
 }
 
 function params(p) {
@@ -369,6 +397,7 @@ function renderChromeExtrude(alpha, w, h, box, vp, p, F) {
   const ramp = rampFor(P), rampAA = rampSampler(ramp);
   const solidSide = P.sideMode === "solid", sc1 = hexInt(P.sideColor), sc2 = hexInt(P.sideColor2);
   const specK = (P.shine === undefined ? 70 : P.shine) / 100 * 2;
+  const land = landParams(P), left = box.x0;
 
   const bil = (f, x, y) => {
     x = Math.max(0, Math.min(w - 1.001, x)); y = Math.max(0, Math.min(h - 1.001, y));
@@ -472,6 +501,7 @@ function renderChromeExtrude(alpha, w, h, box, vp, p, F) {
     const nl = Math.hypot(nx, ny, 1);
     nrm[i * 3] = nx / nl; nrm[i * 3 + 1] = ny / nl; nrm[i * 3 + 2] = 1 / nl;
     U[i] = (y - top) / textH + (ny / nl) * 0.55;
+    if (land.type) U[i] += land.A * landH(land.type, ((x - left) / textH + (nx / nl) * 0.2) / land.P + land.S);
   }
   const hx = L[0], hy = L[1], hz = L[2] + 1, hl = Math.hypot(hx, hy, hz);
   const oR = new Float32Array(N), oG = new Float32Array(N), oB = new Float32Array(N), cov = new Float32Array(N);
@@ -551,5 +581,5 @@ const MATERIALS = [{ id: "chrome", name: "Chrome" }, { id: "gold", name: "Gold" 
   { id: "holo", name: "Holographic" }, { id: "custom", name: "Custom colours" }];
 const PROFILES = [{ id: "chamfer", name: "Chamfer" }, { id: "round", name: "Round" }];
 
-module.exports = { DEFAULTS, RAMPS, EFFECTS, MATERIALS, PROFILES, params, layout, pad, fields, frontHeight, renderChromeExtrude, renderFromAlpha, edt, signedDist, outsideDist, sample, alphaBounds, blur,
+module.exports = { DEFAULTS, RAMPS, EFFECTS, MATERIALS, PROFILES, LANDSCAPES, landParams, landH, params, layout, pad, fields, frontHeight, renderChromeExtrude, renderFromAlpha, edt, signedDist, outsideDist, sample, alphaBounds, blur,
   rampColor, rampFor, rampSampler, footprint, specAA, normalSpread, hexInt };

@@ -904,8 +904,10 @@ function selectRow(parent, c) {
   field.innerHTML = `<span class="field-label">${esc(c.label)}</span><div class="seg${c.options.length > 3 ? " wrap" : ""}"></div>`;
   parent.appendChild(field);
   const seg = field.querySelector(".seg");
-  UI.seg(seg, c.options, (v) => { setValues({ [c.key]: v }); UI.syncSeg(seg, v); changed(); });
-  ctl[c.key] = { type: "select", set: (v) => UI.syncSeg(seg, v) };
+  // c.pick: the choice sets other values (e.g. a direction sets the vanishing point); c.derive: which choice
+  // the current values match ("" = none)
+  UI.seg(seg, c.options, (v) => { setValues(c.pick ? c.pick(v) : { [c.key]: v }); UI.syncSeg(seg, v); changed(); });
+  ctl[c.key] = { type: "select", derived: !!c.derive, set: (v) => UI.syncSeg(seg, c.derive ? c.derive(curValues()) : v) };
 }
 // ---- colour: swatch + hex; clicking the swatch opens the palette and a colour wheel with a brightness slider
 function hexToRgb(h) { const n = parseInt(String(h).slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
@@ -1123,6 +1125,7 @@ function syncUI() {
 }
 function changed() {
   saveState();
+  for (const k of Object.keys(ctl)) if (ctl[k].derived) ctl[k].set();
   debouncedComboThumbs();
   refreshControlVisibility();
   sendPreviewParams();

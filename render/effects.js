@@ -1,10 +1,10 @@
 "use strict";
-// MS Render – effect registry (Phase 2).
+// MS Render – effect registry.
 // Every effect works on the alpha of the source layer (+ optional source colours) and returns
 // straight-alpha RGBA. "mode" tells the plugin where the result goes:
-//   replace – render shows the whole look, source is hidden   (Chrome Extrude, Inflate, Bevel, Glass)
-//   behind  – render sits below the visible source             (Shadow, Glow, Fire, Smoke, Motion Trail)
-//   above   – render sits on top of the visible source         (Drip, Icicles, Snow, Water Drops, Electrify)
+//   replace – render shows the whole look, source is hidden   (Chrome Extrude, Inflate, Bevel, Glass, Halftone, textures)
+//   behind  – render sits below the visible source             (Shadow, Glow, Corona, Backlight, Fire, Smoke, Motion Trail, Retro Stack, Sticker)
+//   above   – render sits on top of the visible source         (Lightning, Electrify, Star, Snow, Water Drops)
 // All sizes are in % of the text height so a look scales with the text.
 
 const E = require("./engine.js");
@@ -105,6 +105,12 @@ const OUTLINE_CONTROLS = [
   { key: "shadowY", label: "Shadow Y", type: "slider", min: -10, max: 10, step: 0.25, unit: "%" },
 ];
 
+// One-click directions for the extrusion: where the vanishing point goes (% of the text box)
+const DIRS = { down: [50, 240], up: [50, -140], back: [50, 50], leftDown: [-120, 240], rightDown: [220, 240], leftUp: [-120, -140], rightUp: [220, -140], left: [-250, 50], right: [350, 50] };
+const DIR_OPTIONS = [{ id: "down", name: "Down" }, { id: "up", name: "Up" }, { id: "back", name: "Back" }, { id: "leftDown", name: "Left-down" }, { id: "rightDown", name: "Right-down" },
+  { id: "leftUp", name: "Left-up" }, { id: "rightUp", name: "Right-up" }, { id: "left", name: "Left" }, { id: "right", name: "Right" }];
+const dirOf = (v) => { for (const k of Object.keys(DIRS)) if (DIRS[k][0] === v.vpX && DIRS[k][1] === v.vpY) return k; return ""; };
+
 // 1) Chrome Extrude (engine.js)
 def({
   id: "chromeExtrude", name: "Chrome Extrude", mode: "replace", gpu: true, drag: "vp",
@@ -116,12 +122,18 @@ def({
     { key: "skyHorizon", label: "Sky (horizon)", type: "color", when: (v) => v.material === "custom" },
     { key: "groundHorizon", label: "Ground (horizon)", type: "color", when: (v) => v.material === "custom" },
     { key: "groundBottom", label: "Ground (bottom)", type: "color", when: (v) => v.material === "custom" },
+    { key: "landscape", label: "Landscape", type: "select", options: E.LANDSCAPES },
+    { key: "landHeight", label: "Landscape height", type: "slider", min: 0, max: 100, step: 1, unit: "%", when: (v) => v.landscape && v.landscape !== "flat" },
+    { key: "landScale", label: "Landscape size", type: "slider", min: 20, max: 400, step: 5, unit: "%", when: (v) => v.landscape && v.landscape !== "flat" },
+    { key: "landShift", label: "Landscape position", type: "slider", min: 0, max: 100, step: 1, unit: "%", when: (v) => v.landscape && v.landscape !== "flat" },
+    { key: "depth", label: "Depth", type: "slider", min: 0, max: 60, step: 1, unit: "%" },
+    // not a value of its own: picks the vanishing point, and shows which direction the current one is
+    { key: "direction", label: "Direction", type: "select", options: DIR_OPTIONS, derive: dirOf, pick: (id) => ({ vpX: DIRS[id][0], vpY: DIRS[id][1] }), when: (v) => v.depth > 0 },
     { key: "horizon", label: "Horizon", type: "slider", min: 15, max: 85, step: 1, unit: "%" },
     { key: "shine", label: "Shine", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
     { key: "profile", label: "Edge", type: "select", options: E.PROFILES },
     { key: "bevel", label: "Bevel", type: "slider", min: 0, max: 25, step: 0.5, unit: "%" },
     { key: "edgeLine", label: "Edge line", type: "slider", min: 0, max: 100, step: 1, unit: "%" },
-    { key: "depth", label: "Depth", type: "slider", min: 0, max: 60, step: 1, unit: "%" },
     { key: "vpX", label: "Vanish X", type: "slider", min: -300, max: 400, step: 5, unit: "%" },
     { key: "vpY", label: "Vanish Y", type: "slider", min: -400, max: 500, step: 5, unit: "%" },
     { key: "sideMode", label: "Sides", type: "select", options: [{ id: "material", name: "Same material" }, { id: "solid", name: "Colour gradient" }] },
@@ -148,6 +160,12 @@ def({
     "Holographic": { material: "holo", profile: "round", bevel: 12, depth: 12, shine: 90, strokeColor: "#ffffff", shadowColor: "#7f5cff", shadowOpacity: 60 },
     "Sunset Custom": { material: "custom", skyTop: "#2b0a52", skyHorizon: "#ff9a3c", groundHorizon: "#ff3f8e", groundBottom: "#1a0630", horizon: 55 },
     "Low Horizon": { horizon: 68, depth: 24 },
+    "Desert Chrome": { landscape: "mesas", landHeight: 50, horizon: 52 },
+    "Mountain Chrome": { landscape: "mountains", landHeight: 55, depth: 22 },
+    "Dune Gold": { material: "gold", landscape: "dunes", landHeight: 45 },
+    "Night City": { material: "synthwave", landscape: "city", landHeight: 40, landScale: 60, sideMode: "solid", sideColor: "#ff3f8e", sideColor2: "#2a0a4a" },
+    "Ocean Ice": { material: "ice", landscape: "waves", landHeight: 30, landScale: 50 },
+    "Back in 3D": { landscape: "mesas", landHeight: 45, depth: 30, vpX: 50, vpY: 50, shadowX: 0, shadowY: 0 },
   },
   layoutNeed: null, // uses engine.layout
   render(ctx, v) {
@@ -1451,6 +1469,7 @@ const COMBOS = {
   "Hot Rod": [C("inflate", { color: "#ff5a1f", puff: 60 }), C("fire", { height: 70 }), C("shadow", { style: "drop", distance: 6, blur: 5, opacity: 55, color: "#000000" })],
   "Gold Sparkle": [C("star", { color: "#fff3c4", count: 8, size: 24 }), C("chromeExtrude", { material: "gold", depth: 12 }), C("shadow", { style: "long", angle: 45, distance: 25, color: "#2a1700", opacity: 70 })],
   "Eclipse": [C("bevel", { color: "#141414", width: 6 }), C("backlight", { color: "#ffffff", size: 70, length: 100, softness: 25 })],
+  "Dreamy Chrome": [C("star", { count: 5, size: 22, glow: 70 }), C("chromeExtrude", { landscape: "mesas", landHeight: 50, shadowX: 0, shadowY: 0 }), C("glow", { color: "#9fd0ff", size: 28, intensity: 55, core: 10 })],
   "Solar Gold": [C("chromeExtrude", { material: "gold", depth: 14 }), C("corona", { length: 55 })],
   "Rust Belt": [C("rust", { amount: 75 }), C("shadow", { style: "drop", distance: 5, blur: 4, opacity: 65, color: "#000000" }), C("smoke", { color: "#55504a", density: 45, height: 70 })],
   "Marble Luxe": [C("star", { color: "#ffe2a0", count: 5, size: 26 }), C("marble", { kind: "black" }), C("glow", { color: "#d6b26a", size: 10, intensity: 45, core: 10 })],
