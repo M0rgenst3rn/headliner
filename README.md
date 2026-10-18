@@ -1,26 +1,26 @@
 <p align="center">
-  <img src="docs/images/hero.png" alt="MS Render" width="100%">
+  <img src="docs/images/hero.png" alt="Morgenstern Render" width="100%">
 </p>
 
 <p align="center">
   <b>Retro- und moderne 3D-Texteffekte für Photoshop: Chrome, Gold, Feuer, Blitze, Glow und vieles mehr.<br>
   Direkt aus deinem Live-Text gerendert, der Text bleibt bearbeitbar.</b><br>
   <sub>Photoshop 2023 (24.2) oder neuer · UXP-Panel</sub><br>
-  <sub><b>MS</b> steht für <b>Morgenstern</b>: freie Photoshop-Tools · <a href="https://github.com/M0rgenst3rn/ms-distress">MS Distress</a> · <a href="https://github.com/M0rgenst3rn/ms-printer">MS Printer</a> · <b>MS Render</b> · <a href="https://github.com/M0rgenst3rn/ms-phase">MS Phase</a> · <a href="https://github.com/M0rgenst3rn/ms-glow">MS Glow</a></sub>
+  <sub>Freie Photoshop-Tools von <b>Morgenstern</b> · <a href="https://github.com/M0rgenst3rn/ms-distress">Morgenstern Distress</a> · <a href="https://github.com/M0rgenst3rn/ms-printer">Morgenstern Printer</a> · <b>Morgenstern Render</b> · <a href="https://github.com/M0rgenst3rn/ms-phase">Morgenstern Phase</a> · <a href="https://github.com/M0rgenst3rn/ms-glow">Morgenstern Glow</a></sub>
 </p>
 
 ---
 
-## Was ist MS Render?
+## Was ist Morgenstern Render?
 
-MS Render ist ein Panel-Plugin für Adobe Photoshop, gemacht für T-Shirt-Designs, Logos und Titel. Du wählst
+Morgenstern Render ist ein Panel-Plugin für Adobe Photoshop, gemacht für T-Shirt-Designs, Logos und Titel. Du wählst
 eine Text- oder Formebene, klickst einen Effekt an und bekommst einen fertigen Look, etwa 80er-Chrome mit
 Perspektive, Feuer, Neon-Glow oder Blitze. Effekte lassen sich wie Ebenen **stapeln**. **15 Combos** liefern
 fertige Kombinationen.
 
 Alles wird prozedural berechnet, ohne Bilddateien, und ist in jeder Auflösung scharf. Das Ergebnis landet als
 echte Ebenen in einer Gruppe. Deine Original-Ebene bleibt darin erhalten und bleibt bearbeitbar: Änderst du den
-Text, rechnet MS Render den Effekt automatisch neu.
+Text, rechnet Morgenstern Render den Effekt automatisch neu.
 
 ### Highlights
 
@@ -196,5 +196,5 @@ Verbindung zu Adobe.
 
 ---
 
-<p align="center"><sub>MS Render · ein Tool von <b>Morgenstern</b><br>
+<p align="center"><sub>Morgenstern Render<br>
 Entwickelt von Linus Leinberger</sub></p>
