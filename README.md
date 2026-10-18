@@ -195,8 +195,12 @@ welcome.
 
 ## License
 
-[MIT](LICENSE): you may freely read, change, share and also use the code commercially.
-The only condition: the license notice stays in copies.
+[MIT with the Commons Clause](LICENSE): the plugin is free. You may use it for any work, including paid
+client work, and you may read, change and share the code.
+You may not sell the plugin or a version of it (changed or not), or charge for a product or service whose
+value comes mainly from it.
+Everything you create with it (designs, images, prints) is yours, and you may sell it.
+The license notice stays in copies.
 
 Adobe and Photoshop are trademarks of Adobe Inc. This project is independent and not affiliated with Adobe.
 
