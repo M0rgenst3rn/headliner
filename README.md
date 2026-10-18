@@ -168,13 +168,19 @@ render/              The plugin (loaded into Photoshop as is)
   effects.js         All 25 effects, looks, stacks and combos
   preview/           Live preview and gallery (WebView; fx.js is built by tools/bundle.js)
 install-mac.sh       Bundles, packs (.ccx) and installs the plugin
-tools/               Bundle step, check script, showcase renderer, preview test page, browser preview of the panel
+tools/               Bundle step, check scripts, quality bench, showcase renderer, preview test page, browser preview of the panel
 docs/images/         Images of this README
+docs/quality/        Before/after crops of the render quality work
 ```
 
 ```bash
 node tools/qa-check.js              # engine checks without Photoshop (all effects, combos, edge cases)
 python3 tools/showcase-server.py    # then open the address it prints: rebuilds the README images
+
+# render quality: anti-aliased text masks, then renders + 4x crops + times (compare against a baseline)
+python3 tools/make-masks.py quality-out/masks
+node tools/quality-bench.js --out quality-out/after --baseline quality-out/before
+node tools/gpu-compare.js           # GPU preview vs. CPU result in headless Chromium (needs Playwright)
 ```
 
 In the panel, **Self-test** (under *Tools*) checks 142 cases automatically against the real Photoshop
