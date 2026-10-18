@@ -131,8 +131,8 @@ async function run() {
     await save("effects.png", tileGrid(items, 5, 400, 230, "All " + FX.EFFECTS.length + " effects")); log("effects");
   }
   // 3) Chrome Extrude materials
-  if (!ONLY) {
-    const mats = [["chrome", "Chrome (80s)"], ["silver", "Silver"], ["gold", "Gold"], ["rosegold", "Rose Gold"], ["copper", "Copper"], ["blackchrome", "Black Chrome"], ["ice", "Ice"], ["synthwave", "Synthwave"], ["holo", "Holographic"], ["custom", "Your own colours"]];
+  if (!ONLY || ONLY === "chrome") {
+    const mats = [["chrome", "Chrome"], ["silver", "Silver"], ["gold", "Gold"], ["rosegold", "Rose Gold"], ["copper", "Copper"], ["blackchrome", "Black Chrome"], ["ice", "Ice"], ["synthwave", "Synthwave"], ["holo", "Holographic"], ["custom", "Custom colours"]];
     const items = [];
     const custom = { skyTop: "#14062e", skyHorizon: "#7ff7ff", groundHorizon: "#ff3fa4", groundBottom: "#2a0a4a" };
     for (const [m, n] of mats) { items.push({ img: compose(textSource(n.split(" ")[0].toUpperCase().replace("YOUR", "CUSTOM"), 110, "#fff"), S([["chromeExtrude", Object.assign({ material: m }, m === "custom" ? custom : {})]])), label: n, sub: m === "custom" ? "sky + ground colours" : "material" }); await tick(); }

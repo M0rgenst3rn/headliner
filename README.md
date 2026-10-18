@@ -32,7 +32,7 @@ Morgenstern Render recomputes the effect automatically.
 - **Live text stays live**: change the text and the effect follows
 - **A tidy panel**: preview and stack on top, below them tabs for *Effects*, *Combos*, *Settings* and *Export*. Click an effect in the stack and its settings open
 - **Export for print**: transparent PNG, 300 dpi, width in cm, hard edges for **DTF**
-- **Self-test**: 142 checks against the real Photoshop result
+- **Self-test**: 149 checks against the real Photoshop result
 
 ## 25 effects
 
@@ -42,12 +42,13 @@ Morgenstern Render recomputes the effect automatically.
 |---|---|---|
 | Chrome Extrude, Inflate, Bevel, Glass, Halftone, Brushed Metal, Diamond Plate, Rust, Wood, Marble, Stone | Shadow, Glow, Corona, Backlight, Fire, Smoke, Motion Trail, Retro Stack, Sticker | Lightning, Electrify, Star, Snow, Water Drops |
 
-Every effect has its own **looks** (presets). All sizes are given in % of the text height, so a look fits any
+Every effect has its own **looks** (presets) in the *Settings* tab. All sizes are given in % of the text height, so a look fits any
 font size.
 
 ## Chrome Extrude
 
-The classic 80s look, in 10 materials and with your own colours for the sky and ground of the reflection:
+The classic 80s look, in 10 materials – with *Custom colours* you pick the sky and ground of the reflection
+yourself:
 
 <p align="center"><img src="docs/images/chrome-materials.png" alt="Chrome Extrude in 10 materials"></p>
 
@@ -63,10 +64,12 @@ the vanishing point anywhere in the preview.
 <p align="center"><img src="docs/images/chrome-directions.png" alt="Extrusion directions"></p>
 
 More settings:
-- **Vanishing point and depth**: drag in the preview
+- **Vanishing point and depth**: drag in the preview or set *Vanish X / Y*
 - **Horizon and shine**: where the reflection sits and how strong it is
-- **Edges and sides**: chamfered or round bevel; sides in the material or with a gradient (synthwave)
-- **Outline and shadow**: a second outline and a hard shadow, each in its own colour
+- **Edges and sides**: chamfered or round bevel, a dark edge line, sides in the material or with a gradient
+  (synthwave)
+- **Outline and shadow**: a second outline and a hard shadow, each with its own colour and opacity
+- **20 looks** to start from, from *80s Chrome* to *Desert Chrome*, *Night City* and *Back in 3D*
 
 ## Stacking effects
 
@@ -158,14 +161,19 @@ The script needs [Node.js](https://nodejs.org) for the preview's bundle step.
 1. **Pick a layer**: select a text or shape layer. The gallery immediately shows every effect with your text
 2. **Click an effect, look or combo**: the effect is applied right away. A group
    *"MS Render · …"* is created with your layer and one layer per effect
-3. **Adjust**: fine-tune in the *Settings* tab or by dragging in the preview, then **Update**
+3. **Adjust**: fine-tune in the *Settings* tab or by dragging in the preview, then **Update** (**Apply** on a
+   layer without effects yet). A dot on the button means there are changes that aren't applied yet
    - **Live** applies changes right away
    - **Update when the text changes** (in the **⋯** menu) recomputes as soon as you edit the text
 4. **More texts**: every text gets its own group. A finished text stays as it is
 5. **Edit later**: select the group and the panel loads its stack with all settings
 6. **Export**: in the *Export* tab
 
-**Tip:** if an effect doesn't fit on the canvas, **Expand canvas** enlarges it automatically.
+**Tips:**
+- If an effect doesn't fit on the canvas, the switch **Expand canvas when the effect doesn't fit** (at the end
+  of the *Settings* tab, on by default) enlarges the canvas. With it off, the effect is cut off at the edge.
+- Very large designs (over about 40 megapixels including the room the effect needs) are rendered at a lower
+  resolution and scaled back up, so they never fail. The status line then shows the percentage used.
 
 ## Project structure
 
@@ -174,6 +182,8 @@ render/              The plugin (loaded into Photoshop as is)
   manifest.json      Plugin description
   index.html         Panel UI
   ms-ui.js/.css      Shared Morgenstern controls and design
+  styles.css         Panel layout (tabs, stack, gallery)
+  icons/             Plugin icons and colour-wheel images
   main.js            Photoshop side (group, XMP, live text, export, self-test)
   engine.js          Core: distance fields, Chrome Extrude renderer
   effects.js         All 25 effects, looks, stacks and combos
@@ -194,7 +204,7 @@ node tools/quality-bench.js --out quality-out/after --baseline quality-out/befor
 node tools/gpu-compare.js           # GPU preview vs. CPU result in headless Chromium (needs Playwright)
 ```
 
-In the panel, **Self-test** (in the **⋯** menu) checks 142 cases automatically against the real Photoshop
+In the panel, **Self-test** (in the **⋯** menu) checks 149 cases automatically against the real Photoshop
 result. It creates its own test document for that.
 
 ## Found a bug? Got an idea?
