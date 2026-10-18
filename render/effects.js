@@ -38,14 +38,7 @@ const smooth = (a, b, v) => { if (b <= a) return v < a ? 0 : 1; const t = clamp0
 function hex(h) { const m = /^#?([0-9a-f]{6})$/i.exec(String(h || "")); const n = m ? parseInt(m[1], 16) : 0; return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
 
 // ---------------------------------------------------------------- shared helpers
-// Height map + lighting for bevelled surfaces. Returns normals per pixel via callback.
-function bevelNormal(ctx, B, profile, x, y, heightS) {
-  const { w } = ctx;
-  const at = (xx, yy) => heightS[Math.max(0, Math.min(ctx.h - 1, yy)) * w + Math.max(0, Math.min(w - 1, xx))];
-  let nx = -(at(x + 1, y) - at(x - 1, y)) * B * 0.5, ny = -(at(x, y + 1) - at(x, y - 1)) * B * 0.5, nz = 1;
-  const l = Math.hypot(nx, ny, nz);
-  return [nx / l, ny / l, nz / l];
-}
+// Height map of a bevelled surface (0 at the edge, 1 inside), smoothed.
 function heightMap(ctx, B, profile) {
   const N = ctx.w * ctx.h, hgt = new Float32Array(N), d = ctx.F.dIn;
   for (let i = 0; i < N; i++) {
@@ -54,12 +47,30 @@ function heightMap(ctx, B, profile) {
   }
   return E.blur(hgt, ctx.w, ctx.h, Math.max(1.5, B * (profile === "round" ? 0.18 : 0.12)));
 }
+// Bevel normals over the shape and a little around it ({ n: x, y, z per pixel, spread }), so the lighting can see
+// how fast the surface turns within a pixel. gradExtra(i) may add a relief gradient [gx, gy].
+function normalField(ctx, B, hs, gradExtra) {
+  const { w, h } = ctx, n = new Float32Array(w * h * 3);
+  const { x0, y0, x1, y1 } = E.alphaBounds(ctx.alpha, w, h, 2);
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const i = y * w + x;
+    let gx = 0, gy = 0;
+    if (hs) { gx = (hs[i + 1] - hs[i - 1]) * B * 0.5; gy = (hs[i + w] - hs[i - w]) * B * 0.5; }
+    if (gradExtra) { const g = gradExtra(i); gx += g[0]; gy += g[1]; }
+    const l = Math.hypot(gx, gy, 1);
+    n[i * 3] = -gx / l; n[i * 3 + 1] = -gy / l; n[i * 3 + 2] = 1 / l;
+  }
+  // spread of the normal inside pixel (x, y) – 0 where the neighbours have no normals
+  const spread = (x, y) => (x > x0 && x < x1 && y > y0 && y < y1 ? E.normalSpread(n, y * w + x, w) : 0);
+  return { n, spread };
+}
 // Outline + hard shadow around a coverage mask (same look as Chrome Extrude)
 function finishWithOutline(ctx, R, G, Bc, cov, strokePct, shXPct, shYPct, outColor) {
   const { w, h } = ctx, N = w * h, H = ctx.box.h;
   const sw = strokePct > 0 ? Math.max(1.5, strokePct / 100 * H) : 0;
-  const sx = Math.round(shXPct / 100 * H), sy = Math.round(shYPct / 100 * H);
-  const uOut = (sw > 0 || sx || sy) ? E.edt(w, h, (i) => cov[i] >= 0.5) : null;
+  // sub-pixel shadow offset and distance to the soft silhouette: outline and shadow edges stay smooth
+  const sx = shXPct / 100 * H, sy = shYPct / 100 * H;
+  const uOut = (sw > 0 || sx || sy) ? E.outsideDist(cov, w, h) : null;
   const oc = outColor || [12, 10, 30];
   const out = new Uint8ClampedArray(N * 4);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -68,7 +79,7 @@ function finishWithOutline(ctx, R, G, Bc, cov, strokePct, shXPct, shYPct, outCol
     const over = (cr, cg, cb, ca) => { r = r * (1 - ca) + cr * ca; g = g * (1 - ca) + cg * ca; b = b * (1 - ca) + cb * ca; A = A + ca * (1 - A); };
     if (uOut && (sx || sy)) {
       const xx = x - sx, yy = y - sy;
-      if (xx >= 0 && yy >= 0 && xx < w && yy < h) { const a = clamp01(Math.max(sw, 1) + 1 - uOut[yy * w + xx]) * 0.85; if (a > 0) over(20, 6, 40, a); }
+      if (xx > -1 && yy > -1 && xx < w && yy < h) { const a = clamp01(Math.max(sw, 1) + 1 - E.sample(uOut, w, h, xx, yy)) * 0.85; if (a > 0) over(20, 6, 40, a); }
     }
     if (sw > 0) { const a = clamp01(sw + 0.5 - uOut[i]); if (a > 0) over(oc[0], oc[1], oc[2], a); }
     if (cov[i] > 0) over(R[i], G[i], Bc[i], cov[i]);
@@ -162,14 +173,15 @@ def({
     const B = Math.max(2, maxD * v.puff / 100);
     const hs = heightMap(ctx, B, "round");
     const col = hex(v.color), L = [-0.5, -0.7, 0.5], ln = Math.hypot(...L);
+    const NF = normalField(ctx, B, hs), nrm = NF.n;
     const R = new Float32Array(N), G = new Float32Array(N), Bc = new Float32Array(N), cov = new Float32Array(N);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x, a = ctx.alpha[i] / 255;
       if (!a) continue;
-      const [nx, ny, nz] = bevelNormal(ctx, B, "round", x, y, hs);
+      const nx = nrm[i * 3], ny = nrm[i * 3 + 1], nz = nrm[i * 3 + 2];
       const lam = Math.max(0, (nx * L[0] + ny * L[1] + nz * L[2]) / ln);
       const hv = [L[0] / ln, L[1] / ln, L[2] / ln + 1], hl = Math.hypot(...hv);
-      const spec = Math.pow(Math.max(0, (nx * hv[0] + ny * hv[1] + nz * hv[2]) / hl), 40) * v.gloss / 100 * 1.6;
+      const spec = E.specAA(Math.max(0, (nx * hv[0] + ny * hv[1] + nz * hv[2]) / hl), 40, NF.spread(x, y)) * v.gloss / 100 * 1.6;
       const sh = 0.35 + 0.75 * lam;
       R[i] = Math.min(255, col[0] * sh + 255 * spec); G[i] = Math.min(255, col[1] * sh + 255 * spec); Bc[i] = Math.min(255, col[2] * sh + 255 * spec); cov[i] = a;
     }
@@ -196,14 +208,21 @@ def({
     const a0 = (v.light - 180) * Math.PI / 180;
     const L = [Math.cos(a0) * 0.6, Math.sin(a0) * 0.6, 0.55], ln = Math.hypot(...L);
     const col = hex(v.color), ramp = E.RAMPS[v.material], tmp = [0, 0, 0];
+    const NF = normalField(ctx, B, hs), nrm = NF.n, rampAA = ramp ? E.rampSampler(ramp) : null;
+    // the metals reflect a ramp; its crisp horizon is spread over exactly one pixel
+    const U = (j) => (((j / w) | 0) - ctx.box.y0) / H + nrm[j * 3 + 1] * 0.55;
     const R = new Float32Array(N), G = new Float32Array(N), Bc = new Float32Array(N), cov = new Float32Array(N);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x, a = ctx.alpha[i] / 255;
       if (!a) continue;
-      const [nx, ny, nz] = bevelNormal(ctx, B, v.profile, x, y, hs);
+      const nx = nrm[i * 3], ny = nrm[i * 3 + 1], nz = nrm[i * 3 + 2];
       const lam = Math.max(0, (nx * L[0] + ny * L[1] + nz * L[2]) / ln);
       let c = col;
-      if (ramp) { E.rampColor(ramp, (y - ctx.box.y0) / H + ny * 0.55, tmp); c = tmp; }
+      if (ramp) {
+        const u = U(i);
+        rampAA(u, x > 1 && y > 1 && x < w - 2 && y < h - 2 ? E.footprint(U(i - 1), U(i + 1), U(i - w), U(i + w), u) : 0, tmp);
+        c = tmp;
+      }
       const sh = ramp ? 0.75 + 0.4 * lam : 0.3 + 0.85 * lam;
       R[i] = Math.min(255, c[0] * sh); G[i] = Math.min(255, c[1] * sh); Bc[i] = Math.min(255, c[2] * sh); cov[i] = a;
     }
@@ -229,21 +248,22 @@ def({
     const { w, h } = ctx, N = w * h, H = ctx.box.h;
     const B = Math.max(2, v.bevel / 100 * H), hs = heightMap(ctx, B, "round");
     const tint = hex(v.tint), L = [-0.45, -0.75, 0.48], ln = Math.hypot(...L);
+    const NF = normalField(ctx, B, hs), nrm = NF.n;
     const out = new Uint8ClampedArray(N * 4);
-    const sx = Math.round(v.shadowX / 100 * H), sy = Math.round(v.shadowY / 100 * H);
+    const sx = v.shadowX / 100 * H, sy = v.shadowY / 100 * H;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const i = y * w + x, a = ctx.alpha[i] / 255;
       let r = 0, g = 0, b = 0, A = 0;
       const over = (cr, cg, cb, ca) => { r = r * (1 - ca) + cr * ca; g = g * (1 - ca) + cg * ca; b = b * (1 - ca) + cb * ca; A = A + ca * (1 - A); };
       // tinted, translucent shadow
       const xx = x - sx, yy = y - sy;
-      if ((sx || sy) && xx >= 0 && yy >= 0 && xx < w && yy < h) { const sa = ctx.alpha[yy * w + xx] / 255 * 0.35; if (sa > 0) over(tint[0] * 0.5, tint[1] * 0.5, tint[2] * 0.5, sa); }
+      if ((sx || sy) && xx > -1 && yy > -1 && xx < w && yy < h) { const sa = E.sample(ctx.alpha, w, h, xx, yy) / 255 * 0.35; if (sa > 0) over(tint[0] * 0.5, tint[1] * 0.5, tint[2] * 0.5, sa); }
       if (a > 0) {
-        const [nx, ny, nz] = bevelNormal(ctx, B, "round", x, y, hs);
+        const nx = nrm[i * 3], ny = nrm[i * 3 + 1], nz = nrm[i * 3 + 2];
         const edge = 1 - clamp01(ctx.F.dIn[i] / B);
         const body = (1 - v.clarity / 100) * 0.6 + 0.12 + edge * 0.55;
         const hv = [L[0] / ln, L[1] / ln, L[2] / ln + 1], hl = Math.hypot(...hv);
-        const spec = Math.pow(Math.max(0, (nx * hv[0] + ny * hv[1] + nz * hv[2]) / hl), 70) * v.highlight / 100 * 1.8;
+        const spec = E.specAA(Math.max(0, (nx * hv[0] + ny * hv[1] + nz * hv[2]) / hl), 70, NF.spread(x, y)) * v.highlight / 100 * 1.8;
         over(tint[0], tint[1], tint[2], Math.min(1, body) * a);
         const hiA = Math.min(1, spec) * a;
         if (hiA > 0) over(255, 255, 255, hiA);
@@ -292,7 +312,7 @@ def({
           const xi = Math.round(px), yi = Math.round(py);
           if (xi < 0 || yi < 0 || xi >= w || yi >= h) { t += 1; continue; }
           const d = dOut[yi * w + xi];
-          if (d < 0.75) { hit = t; break; }
+          if (d < 0.5) { hit = t; break; }
           t += Math.max(1, d * 0.9);
         }
         m[y * w + x] = hit >= 0 ? 1 - 0.55 * (hit / Math.max(1, len)) : 0;
@@ -371,7 +391,7 @@ def({
         if (yi >= h) break;
         if (xi < 0 || xi >= w || yi < 0) { t += 1; continue; }
         const d = dOut[yi * w + xi];
-        if (d < 0.75) { hit = t; break; }
+        if (d < 0.5) { hit = t; break; }
         t += Math.max(1, d * 0.7);
       }
       if (hit < 0) continue;
@@ -1038,33 +1058,52 @@ def({
 // Shared renderer: a procedural texture (colour + relief height) in text-relative coordinates, lit together
 // with an edge bevel, then outline + hard shadow like the other looks. tex(u, v, seed, values) returns
 // [r, g, b, height] with u/v in units of the texture scale.
+const TEX_SS = [[-0.375, -0.125], [0.125, -0.375], [0.375, 0.125], [-0.125, 0.375]];   // rotated grid inside a pixel
 function renderMaterial(ctx, v, tex, opt) {
   const { w, h, box } = ctx, N = w * h, H = box.h, al = ctx.alpha, s = v.seed | 0;
   const S = Math.max(4, v.scale / 100 * H), B = v.bevel > 0 ? Math.max(1.5, v.bevel / 100 * H) : 0;
   const hs = B ? heightMap(ctx, B, opt.profile || "round") : null;
   // texture over the shape's bounding area (+1 px for gradients)
-  const col = new Float32Array(N * 3), th = new Float32Array(N);
+  const col = new Float32Array(N * 3), th = new Float32Array(N), done = new Uint8Array(N);
   const x0 = Math.max(0, box.x0 - 2), x1 = Math.min(w - 1, box.x0 + box.w + 2), y0 = Math.max(0, box.y0 - 2), y1 = Math.min(h - 1, box.y0 + H + 2);
   const rgbh = [0, 0, 0, 0];
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const i = y * w + x;
     if (!al[i] && !(x > 0 && al[i - 1]) && !(x < w - 1 && al[i + 1]) && !(y > 0 && al[i - w]) && !(y < h - 1 && al[i + w])) continue;
     tex((x - box.x0) / S, (y - box.y0) / S, s, v, rgbh);
-    col[i * 3] = rgbh[0]; col[i * 3 + 1] = rgbh[1]; col[i * 3 + 2] = rgbh[2]; th[i] = rgbh[3];
+    col[i * 3] = rgbh[0]; col[i * 3 + 1] = rgbh[1]; col[i * 3 + 2] = rgbh[2]; th[i] = rgbh[3]; done[i] = 1;
+  }
+  // texture details smaller than a pixel (speckles, cracks, fine streaks) would snap to whole pixels:
+  // where the texture jumps between neighbours, average 4 more samples inside the pixel
+  const jumps = (i, j) => done[j] && (Math.abs(col[i * 3] - col[j * 3]) > 18 || Math.abs(col[i * 3 + 1] - col[j * 3 + 1]) > 18 ||
+    Math.abs(col[i * 3 + 2] - col[j * 3 + 2]) > 18 || Math.abs(th[i] - th[j]) > 0.15);
+  const redo = [];
+  for (let y = Math.max(1, y0); y <= Math.min(h - 2, y1); y++) for (let x = Math.max(1, x0); x <= Math.min(w - 2, x1); x++) {
+    const i = y * w + x;
+    if (done[i] && (jumps(i, i - 1) || jumps(i, i + 1) || jumps(i, i - w) || jumps(i, i + w))) redo.push(i);
+  }
+  for (const i of redo) {
+    const x = i % w, y = (i - x) / w;
+    let r = col[i * 3], g = col[i * 3 + 1], b = col[i * 3 + 2], t = th[i];
+    for (const [ox, oy] of TEX_SS) {
+      tex((x + ox - box.x0) / S, (y + oy - box.y0) / S, s, v, rgbh);
+      r += rgbh[0]; g += rgbh[1]; b += rgbh[2]; t += rgbh[3];
+    }
+    col[i * 3] = r / 5; col[i * 3 + 1] = g / 5; col[i * 3 + 2] = b / 5; th[i] = t / 5;
   }
   const a0 = (v.light - 180) * Math.PI / 180, L = [Math.cos(a0) * 0.62, Math.sin(a0) * 0.62, 0.5], ln = Math.hypot(...L);
   const Lx = L[0] / ln, Ly = L[1] / ln, Lz = L[2] / ln, hl = Math.hypot(Lx, Ly, Lz + 1);
   const Hx = Lx / hl, Hy = Ly / hl, Hz = (Lz + 1) / hl;
   const relief = v.relief / 100 * S * 0.18, gloss = opt.gloss || 20, specK = opt.spec || 0.2;
   const R = new Float32Array(N), G = new Float32Array(N), Bc = new Float32Array(N), cov = new Float32Array(N);
+  const tg = [0, 0], NF = normalField(ctx, B, hs, (i) => { tg[0] = (th[i + 1] - th[i - 1]) * 0.5 * relief; tg[1] = (th[i + w] - th[i - w]) * 0.5 * relief; return tg; });
+  const nrm = NF.n;
   for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
     const i = y * w + x, a = al[i] / 255;
     if (!a) continue;
-    let gx = (th[i + 1] - th[i - 1]) * 0.5 * relief, gy = (th[i + w] - th[i - w]) * 0.5 * relief;
-    if (hs) { gx += (hs[i + 1] - hs[i - 1]) * B * 0.5; gy += (hs[i + w] - hs[i - w]) * B * 0.5; }
-    const nl = Math.hypot(gx, gy, 1), nx = -gx / nl, ny = -gy / nl, nz = 1 / nl;
+    const nx = nrm[i * 3], ny = nrm[i * 3 + 1], nz = nrm[i * 3 + 2];
     const lam = Math.max(0, nx * Lx + ny * Ly + nz * Lz);
-    const spec = Math.pow(Math.max(0, nx * Hx + ny * Hy + nz * Hz), gloss) * specK * 255;
+    const spec = E.specAA(Math.max(0, nx * Hx + ny * Hy + nz * Hz), gloss, NF.spread(x, y)) * specK * 255;
     // metals get a broad sheen across the letter height (like a reflection of the room)
     const sheen = opt.metal ? 0.82 + 0.3 * Math.cos(((y - box.y0) / H) * Math.PI * 1.3 + 0.5) : 1;
     const sh = (0.42 + 0.72 * lam) * sheen;
