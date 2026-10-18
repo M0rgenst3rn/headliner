@@ -17,6 +17,7 @@ const LABEL = (px, w) => `${w || 700} ${px}px Arial, sans-serif`;
 const SAVE = new URLSearchParams(location.search).has("save");
 // Supersampling: everything is rendered SC times larger (the effects scale with the text height) and then
 // scaled down to the final size, so edges, bevels and fine lines come out smooth. ?sc=1 for a quick draft.
+const ONLY = new URLSearchParams(location.search).get("only");   // render just one image (e.g. ?only=land)
 const SC = Math.max(1, Number(new URLSearchParams(location.search).get("sc")) || 3);
 const log = (s) => { document.getElementById("log").textContent = s; };
 
@@ -108,7 +109,7 @@ const ZONE = { base: "replaces the look", behind: "behind", above: "on top" };
 
 async function run() {
   // 1) hero
-  {
+  if (!ONLY) {
     const src = textSource("MS RENDER", 300, "#ffffff");
     const img = compose(src, S([["star", { count: 5, size: 26, glow: 70 }], ["chromeExtrude", { material: "chrome", depth: 24 }], ["glow", { color: "#5aa8ff", size: 12, intensity: 70, core: 20 }]]));
     const c = hiCanvas(1800, 720);
@@ -119,34 +120,49 @@ async function run() {
     x.textAlign = "center"; x.fillStyle = "#e9e9e9"; x.font = LABEL(34);
     x.fillText("Retro & modern 3D text effects for Photoshop", 900, 625);
     x.fillStyle = "#8b8f98"; x.font = LABEL(22, 400);
-    x.fillText(FX.EFFECTS.length + " effects · stacks · 15 combos · live text stays editable · export for print", 900, 668);
+    x.fillText(FX.EFFECTS.length + " effects · stacks · " + Object.keys(FX.COMBOS).length + " combos · live text stays editable · export for print", 900, 668);
     await save("hero.png", c); log("hero"); await tick();
   }
   // 2) all effects
-  {
+  if (!ONLY) {
     const src = textSource("RENDER", 96);
     const items = [];
     for (const e of FX.EFFECTS) { const st = FX.single(e.id, {}); items.push({ img: compose(sizeFor(st, 96) === 96 ? src : textSource("RENDER", sizeFor(st, 96)), st), label: e.name, sub: ZONE[FX.zoneOf(e.id)] }); await tick(); }
     await save("effects.png", tileGrid(items, 5, 400, 230, "All " + FX.EFFECTS.length + " effects")); log("effects");
   }
   // 3) Chrome Extrude materials
-  {
+  if (!ONLY) {
     const mats = [["chrome", "Chrome (80s)"], ["silver", "Silver"], ["gold", "Gold"], ["rosegold", "Rose Gold"], ["copper", "Copper"], ["blackchrome", "Black Chrome"], ["ice", "Ice"], ["synthwave", "Synthwave"], ["holo", "Holographic"], ["custom", "Your own colours"]];
     const items = [];
     const custom = { skyTop: "#14062e", skyHorizon: "#7ff7ff", groundHorizon: "#ff3fa4", groundBottom: "#2a0a4a" };
     for (const [m, n] of mats) { items.push({ img: compose(textSource(n.split(" ")[0].toUpperCase().replace("YOUR", "CUSTOM"), 110, "#fff"), S([["chromeExtrude", Object.assign({ material: m }, m === "custom" ? custom : {})]])), label: n, sub: m === "custom" ? "sky + ground colours" : "material" }); await tick(); }
     await save("chrome-materials.png", tileGrid(items, 2, 640, 260, "Chrome Extrude · 10 materials")); log("chrome");
   }
+  // 3b) landscapes on the horizon of the reflection
+  if (!ONLY || ONLY === "land") {
+    const lands = [["flat", "Flat", {}], ["mountains", "Mountains", {}], ["dunes", "Dunes", { material: "gold" }], ["mesas", "Mesas", {}], ["city", "City", { material: "synthwave", landScale: 60 }], ["waves", "Waves", { material: "ice", landScale: 50 }]];
+    const items = [];
+    for (const [id, n, extra] of lands) { items.push({ img: compose(textSource("CHROME", 110, "#fff"), S([["chromeExtrude", Object.assign({ landscape: id, landHeight: id === "waves" ? 30 : 50 }, extra)]])), label: n, sub: "landscape" }); await tick(); }
+    await save("chrome-landscapes.png", tileGrid(items, 3, 560, 260, "Landscapes in the reflection")); log("land");
+  }
+  // 3c) one-click directions for the extrusion
+  if (!ONLY || ONLY === "dir") {
+    const dirs = [["Down", 50, 240], ["Up", 50, -140], ["Back", 50, 50], ["Left-down", -120, 240]];
+    const items = [];
+    for (const [n, x, y] of dirs) { items.push({ img: compose(textSource("3D", 130, "#fff"), S([["chromeExtrude", { landscape: "mesas", depth: 30, vpX: x, vpY: y, shadowX: 0, shadowY: 0 }]])), label: n, sub: "direction" }); await tick(); }
+    await save("chrome-directions.png", tileGrid(items, 4, 420, 280, "Extrusion in one click")); log("dir");
+  }
+  if (ONLY) { log("done"); window.DONE = true; return; }
   // 4) combos
   {
-    const words = { "Thunder Chrome": "THUNDER", "Flame Biker": "FLAME", "Neon Sign": "NEON", "Toxic Slime": "TOXIC", "Frozen": "FROZEN", "70s Groove": "GROOVY", "Sticker Pop": "POP", "Comic Burst": "BOOM", "Hot Rod": "HOT ROD", "Gold Sparkle": "SPARKLE", "Eclipse": "ECLIPSE", "Solar Gold": "SOLAR", "Rust Belt": "RUST", "Marble Luxe": "LUXE", "Storm": "STORM" };
+    const words = { "Thunder Chrome": "THUNDER", "Flame Biker": "FLAME", "Neon Sign": "NEON", "Toxic Slime": "TOXIC", "Frozen": "FROZEN", "70s Groove": "GROOVY", "Sticker Pop": "POP", "Comic Burst": "BOOM", "Hot Rod": "HOT ROD", "Gold Sparkle": "SPARKLE", "Eclipse": "ECLIPSE", "Solar Gold": "SOLAR", "Rust Belt": "RUST", "Marble Luxe": "LUXE", "Storm": "STORM", "Dreamy Chrome": "DREAM" };
     const items = [];
     for (const n of Object.keys(FX.COMBOS)) {
       const st = FX.comboStack(n);
       items.push({ img: compose(textSource(words[n] || n.toUpperCase(), sizeFor(st, 100)), st), label: n, sub: st.entries.map((e) => FX.BY_ID[e.effect].name).join(" + ") });
       await tick();
     }
-    await save("combos.png", tileGrid(items, 3, 560, 290, "15 combos – ready-made stacks")); log("combos");
+    await save("combos.png", tileGrid(items, 4, 420, 260, Object.keys(FX.COMBOS).length + " combos – ready-made stacks")); log("combos");
   }
   // 5) building a stack step by step
   {

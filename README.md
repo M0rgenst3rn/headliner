@@ -15,7 +15,7 @@
 
 Morgenstern Render is a panel plugin for Adobe Photoshop, made for t-shirt designs, logos and titles. Pick a
 text or shape layer, click an effect, and you get a finished look – 80s chrome with perspective, fire, neon
-glow or lightning. Effects can be **stacked** like layers. **15 combos** give you ready-made combinations.
+glow or lightning. Effects can be **stacked** like layers. **16 combos** give you ready-made combinations.
 
 Everything is computed procedurally, without image files, and stays sharp at any resolution. The result lands
 as real layers in a group. Your original layer stays inside it and stays editable: change the text and
@@ -24,9 +24,9 @@ Morgenstern Render recomputes the effect automatically.
 ### Highlights
 
 - **25 effects**: 11 looks, 9 effects behind the text, 5 effects on top of the text
-- **Chrome Extrude** in 10 materials with a movable vanishing point, horizon, outlines and hard shadows
+- **Chrome Extrude** in 10 materials with landscapes in the reflection, one-click directions, a movable vanishing point, outlines and hard shadows
 - **Stack like layers**: chrome + fire + glow + stars. Every effect becomes its own layer
-- **15 combos** as ready-made stacks. **Your look always stays exactly as you set it**
+- **16 combos** as ready-made stacks. **Your look always stays exactly as you set it**
 - **Gallery with your own text**: every thumbnail shows your selected lettering
 - **Live preview** in the panel, Chrome Extrude on the GPU in a few milliseconds
 - **Live text stays live**: change the text and the effect follows
@@ -50,6 +50,17 @@ font size.
 The classic 80s look, in 10 materials and with your own colours for the sky and ground of the reflection:
 
 <p align="center"><img src="docs/images/chrome-materials.png" alt="Chrome Extrude in 10 materials"></p>
+
+**Landscapes in the reflection**: instead of a straight horizon, the chrome can reflect mountains, dunes,
+mesas (the classic desert chrome), a city skyline or waves. They repeat seamlessly and scale with your text;
+set their height, size and position.
+
+<p align="center"><img src="docs/images/chrome-landscapes.png" alt="Landscapes in the reflection"></p>
+
+**Extrusion in one click**: Down, Up, Back, Left-down, Right-down, Left-up, Right-up, Left or Right – or drag
+the vanishing point anywhere in the preview.
+
+<p align="center"><img src="docs/images/chrome-directions.png" alt="Extrusion directions"></p>
 
 More settings:
 - **Vanishing point and depth**: drag in the preview
@@ -85,12 +96,12 @@ How to build a stack:
 | **Remove** | Removes every effect, the original layer stands on its own again |
 | **⌘Z** | Undoes every step, as usual |
 
-## 15 combos
+## 16 combos
 
 Ready-made stacks to try. The thumbnails in the panel show every combo **with your text and your look** –
 exactly what a click gives you.
 
-<p align="center"><img src="docs/images/combos.png" alt="All 15 combos"></p>
+<p align="center"><img src="docs/images/combos.png" alt="All 16 combos"></p>
 
 ### Your look stays
 

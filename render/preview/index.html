@@ -42,7 +42,26 @@ uniform sampler2D tA, tS, tSdf, tIn, tH, tWall;
 uniform vec2 size, vp; uniform float s, B, top, textH, scale, edgeK, specK; uniform int sideMode;
 uniform vec3 side1, side2;
 uniform vec4 ramp[8];
+uniform int landT; uniform float landA, landP, landS, left;
 out vec4 o;
+// landscapes on the horizon – the same functions as landH() in engine.js
+const float CITY[12] = float[12](0.35, 0.8, 0.55, 0.95, 0.4, 0.65, 0.3, 0.85, 0.5, 0.7, 0.25, 0.6);
+float triW(float t){ return 1. - 2. * abs(fract(t) - 0.5); }
+float hillW(float t){ return 0.5 - 0.5 * cos(6.283185307 * t); }
+float landH(float x){
+  if (landT == 1) return 0.55 * pow(triW(x), 1.6) + 0.3 * pow(triW(2. * x + 0.37), 1.4) + 0.15 * triW(5. * x + 0.71);
+  if (landT == 2) return 0.6 * pow(hillW(x), 1.5) + 0.4 * pow(hillW(2. * x + 0.3), 2.);
+  if (landT == 3) return 0.75 * clamp((triW(x) - 0.4) * 6., 0., 1.) + 0.25 * clamp((triW(3. * x + 0.2) - 0.55) * 8., 0., 1.);
+  if (landT == 4) return CITY[int(floor(fract(x * 0.5) * 12.)) % 12];
+  if (landT == 5) return 0.7 * hillW(3. * x) + 0.3 * hillW(5. * x + 0.4);
+  return 0.;
+}
+// reflection coordinate of the front face at pixel p with normal n (engine.js: U[i])
+float uAt(vec2 p, vec3 n){
+  float u = (p.y - top) / textH + n.y * 0.55;
+  if (landT > 0) u += landA * landH(((p.x - left) / textH + n.x * 0.2) / landP + landS);
+  return u;
+}
 float bil(sampler2D t, vec2 p){
   p = clamp(p, vec2(0.), size - 1.001); vec2 i = floor(p), f = p - i;
   float a = texelFetch(t, ivec2(i), 0).r, b = texelFetch(t, ivec2(i) + ivec2(1, 0), 0).r;
@@ -159,10 +178,10 @@ void main(){
   vec3 col = wc * cw; float cov = cw;
   if (a > 0.) {
     vec3 n = nrmAt(q);
-    float u = (x.y - top) / textH + n.y * 0.55;
+    float u = uAt(x, n);
     vec3 nl = nrmAt(q - ivec2(1, 0)), nr = nrmAt(q + ivec2(1, 0)), nu = nrmAt(q - ivec2(0, 1)), nd = nrmAt(q + ivec2(0, 1));
-    float uL = (x.y - top) / textH + nl.y * 0.55, uR = (x.y - top) / textH + nr.y * 0.55;
-    float uU = (x.y - 1. - top) / textH + nu.y * 0.55, uD = (x.y + 1. - top) / textH + nd.y * 0.55;
+    float uL = uAt(x - vec2(1, 0), nl), uR = uAt(x + vec2(1, 0), nr);
+    float uU = uAt(x - vec2(0, 1), nu), uD = uAt(x + vec2(0, 1), nd);
     float fw = min(0.08, min(abs(uR - u), abs(u - uL)) + min(abs(uD - u), abs(u - uU)));
     vec3 c2 = rampAA(u, fw);
     vec3 H = normalize(vec3(L.xy, L.z + 1.));
@@ -386,6 +405,12 @@ function renderGPU(v) {
     gl.uniform3fv(uni(prog, "side2"), rgb3(v.sideColor2));
     gl.uniform1f(uni(prog, "specK"), (v.shine === undefined ? 70 : v.shine) / 100 * 2);
     gl.uniform4fv(uni(prog, "ramp"), new Float32Array(ramp));
+    const land = E.landParams(v);
+    gl.uniform1i(uni(prog, "landT"), land.type);
+    gl.uniform1f(uni(prog, "landA"), land.A);
+    gl.uniform1f(uni(prog, "landP"), land.P);
+    gl.uniform1f(uni(prog, "landS"), land.S);
+    gl.uniform1f(uni(prog, "left"), box.x0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
