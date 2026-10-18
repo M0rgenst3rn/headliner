@@ -981,6 +981,9 @@ function colorRow(parent, c, allowEmpty) {
   } };
 }
 let shownControls = "";
+const MAIN_CONTROLS = 4;
+let moreOpen = false;
+try { moreOpen = localStorage.getItem("msrender.more") === "1"; } catch (e) { /* ignore */ }
 // rebuild the settings when a change shows or hides controls (e.g. material → Custom colours)
 function refreshControlVisibility() {
   const fx = fxDef();
@@ -999,10 +1002,30 @@ function buildControls() {
   const v = curValues();
   const visible = fx.controls.filter((c) => !c.when || c.when(v));   // e.g. custom colours only for "Custom"
   shownControls = visible.map((c) => c.key).join(",");
+  // the first MAIN_CONTROLS controls stay visible, the rest folds into "More settings";
+  // a conditional control (e.g. custom colours) stays with the control it belongs to
+  let count = 0, target = box, more = null;
   for (const c of visible) {
-    if (c.type === "slider") sliderRow(box, c);
-    else if (c.type === "select") selectRow(box, c);
-    else if (c.type === "color") colorRow(box, c, fx.defaults[c.key] === "");
+    if (!c.when) count++;
+    if (count > MAIN_CONTROLS && !more) {
+      const rest = visible.slice(visible.indexOf(c)).filter((x) => !x.when).length;
+      const toggle = document.createElement("div");
+      toggle.className = "row";
+      toggle.innerHTML = `<div class="btn small ghost">${moreOpen ? "Fewer settings" : `More settings (${rest})`}</div>`;
+      box.appendChild(toggle);
+      more = document.createElement("div");
+      more.className = moreOpen ? "" : "hidden";
+      box.appendChild(more);
+      toggle.querySelector(".btn").addEventListener("click", () => {
+        moreOpen = !moreOpen;
+        try { localStorage.setItem("msrender.more", moreOpen ? "1" : "0"); } catch (e) { /* ignore */ }
+        buildControls(); syncUI();
+      });
+      target = more;
+    }
+    if (c.type === "slider") sliderRow(target, c);
+    else if (c.type === "select") selectRow(target, c);
+    else if (c.type === "color") colorRow(target, c, fx.defaults[c.key] === "");
   }
   const hints = {
     chromeExtrude: "Drag in the preview to move the vanishing point. Values in % of the text height/box.",

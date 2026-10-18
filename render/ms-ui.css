@@ -192,5 +192,8 @@ input[type="text"]:focus { border-color: #2f5bff; }
 .hint { font-size: 10px; color: #7e89a6; margin: 10px 0 2px; line-height: 15px; }
 .muted { color: #7e89a6; }
 
+.fine-label { font-size: 10px; font-weight: 600; color: #7b9cff; margin: 12px 0 2px; }
+.fine-label:first-child { margin-top: 0; }
+
 /* ---------- ausgeblendet (am Ende, spezifisch genug für alle Elemente oben) */
 .hidden, .row.hidden, .sl.hidden, .field.hidden, .group.hidden, .subgroup.hidden, .swatch-wrap.hidden, .color-pop.hidden, .btn.hidden, .switch.hidden, .seg.hidden, .preview img.hidden, .preview-msg.hidden, input.hidden { display: none; }
