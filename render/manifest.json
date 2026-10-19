@@ -1,6 +1,6 @@
 {
-  "id": "com.linus.msrender",
-  "name": "MS Render",
+  "id": "com.linus.headliner",
+  "name": "Headliner",
   "version": "0.8.5",
   "main": "index.html",
   "manifestVersion": 5,
@@ -18,7 +18,7 @@
     {
       "type": "panel",
       "id": "renderPanel",
-      "label": { "default": "MS Render" },
+      "label": { "default": "Headliner" },
       "minimumSize": { "width": 280, "height": 420 },
       "maximumSize": { "width": 900, "height": 4000 },
       "preferredDockedSize": { "width": 340, "height": 780 },

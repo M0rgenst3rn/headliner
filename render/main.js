@@ -1,6 +1,6 @@
 "use strict";
-// MS Render – Photoshop UXP panel.
-// A source layer (live text / shape / pixels) goes into a group "MS Render · <name>" together with one
+// Headliner – Photoshop UXP panel.
+// A source layer (live text / shape / pixels) goes into a group "Headliner · <name>" together with one
 // rendered layer per effect of its stack. The stack works like Photoshop's layers: effects that replace
 // the look (the base, e.g. Chrome Extrude) hide the source; the others sit above or behind it and are
 // computed from the base's result. Settings live in the render layers' XMP, so selecting the group later
@@ -9,14 +9,14 @@
 const { app, core, action, imaging, constants } = require("photoshop");
 const { batchPlay } = action;
 const FX = require("./effects.js");
-const UI = require("./ms-ui.js");
+const UI = require("./ui.js");
 const lfs = require("uxp").storage.localFileSystem;
 
 const $ = (id) => document.getElementById(id);
-const STORE_KEY = "msrender.state.v3";
-const GROUP_PREFIX = "MS Render · ";
-const HIST = "MS Render";
-const XMP_NS = "http://ms-render/1.0/";
+const STORE_KEY = "headliner.state.v3";
+const GROUP_PREFIX = "Headliner · ";
+const HIST = "Headliner";
+const XMP_NS = "http://headliner/1.0/";
 // Render layers are named "✦ <Effect>". A source text that happens to read "Glow" or "Fire" is never taken for
 // one. Plain effect names (v0.2–0.8, incl. removed effects) only count once the group's source id is known.
 const RENDER_PREFIX = "✦ ";
@@ -44,7 +44,7 @@ function loadState() {
     if (s) Object.assign(d, s);
     else {
       // migrate v0.2/0.3 (one effect + remembered values per effect)
-      const old = JSON.parse(localStorage.getItem("msrender.state.v2") || "null");
+      const old = JSON.parse(localStorage.getItem("headliner.state.v2") || "null");
       if (old && FX.BY_ID[old.effect]) { d.fx = old.fx || {}; d.stack = FX.single(old.effect, d.fx[old.effect]); d.expandCanvas = old.expandCanvas !== false; }
     }
   } catch (e) { /* defaults */ }
@@ -115,7 +115,7 @@ function log(msg, data) {
 }
 
 // ---------------------------------------------------------------- target resolution
-// An MS Render group holds its source plus one render layer per effect. The source is identified by its
+// An Headliner group holds its source plus one render layer per effect. The source is identified by its
 // layer id (stored in the render layers' XMP and cached here) – never by position, so a new layer that
 // Photoshop drops into the group can't be mistaken for the source.
 const groupSource = new Map(); // group id -> source layer id (-1 = group without readable settings)
@@ -145,7 +145,7 @@ function resolveTarget(doc) {
   if (group) {
     const { renderLayers, source, ejectable } = groupParts(group);
     // a new text that doesn't belong to the effect (created while the group was selected)
-    if (ejectable.some((k) => k.id === l.id)) return { group: null, source: null, renderLayers: [], foreignIn: group, error: "This layer sits inside an MS Render group – moving it out…" };
+    if (ejectable.some((k) => k.id === l.id)) return { group: null, source: null, renderLayers: [], foreignIn: group, error: "This layer sits inside an Headliner group – moving it out…" };
     return { group, source, renderLayers };
   }
   if (isGroup(l)) return { group: null, source: null, renderLayers: [], error: "Select a text or shape layer (not a group)." };
@@ -192,7 +192,7 @@ async function readGroupParams(t) {
 async function idleWithin(ms) { const end = Date.now() + ms; while (busy && Date.now() < end) await sleep(50); return !busy; }
 function needsRGB(doc) {
   if (String(doc.mode).toLowerCase().indexOf("rgb") >= 0) return false;
-  setStatus("MS Render needs an RGB document – Image › Mode › RGB Color.", true);
+  setStatus("Headliner needs an RGB document – Image › Mode › RGB Color.", true);
   return true;
 }
 
@@ -246,7 +246,7 @@ async function initPreview() {
   log("PREVIEW", { ready: wvReady });
 }
 
-// Reads the selected layer at preview size and sends it to the WebView; selecting an MS Render group
+// Reads the selected layer at preview size and sends it to the WebView; selecting an Headliner group
 // loads its stack into the panel.
 async function refreshPreviewSource() {
   if (busy) return;
@@ -309,7 +309,7 @@ function sendPreviewParams() {
 }
 
 function currentTarget() { const doc = app.activeDocument; return doc ? resolveTarget(doc) : null; }
-// Live mode only ever touches an existing MS Render group
+// Live mode only ever touches an existing Headliner group
 function liveTarget() { const t = currentTarget(); return !!(t && t.group); }
 function hasTarget() { const t = currentTarget(); return !!(t && t.source); }
 // What the selected group currently has rendered (to show "changes not applied")
@@ -333,7 +333,7 @@ function setTargetUI(t) {
   const name = $("sourceName"), btn = $("render");
   if (t && t.group) {
     name.textContent = "✦ " + t.group.name.slice(GROUP_PREFIX.length);
-    name.title = "Editing this MS Render group – changes update it";
+    name.title = "Editing this Headliner group – changes update it";
     btn.textContent = "Update";
   } else if (t && t.source) {
     name.textContent = t.source.name;
@@ -583,7 +583,7 @@ async function renderInto(ctx, doc, t, p) {
     if (need.left || need.top || need.right || need.bottom) log("  canvas", need);
   }
   const L = layersInDoc(doc, a, res, p.stack);
-  // 3) group: source goes into "MS Render · <name>"
+  // 3) group: source goes into "Headliner · <name>"
   if (!group) {
     await selectLayer(source.id);
     await batchPlay([{ _obj: "make", _target: [{ _ref: "layerSection" }], from: { _ref: "layer", _enum: "ordinal", _value: "targetEnum" } }], {});
@@ -697,7 +697,7 @@ async function removeRender() {
   if (busy && !(await idleWithin(6000))) return setStatus("Photoshop is still busy – try again in a moment.", true);
   const doc = app.activeDocument;
   const t = doc && resolveTarget(doc);
-  if (!t || !t.group) return setStatus("Select an MS Render group to remove.", true);
+  if (!t || !t.group) return setStatus("Select an Headliner group to remove.", true);
   busy = true;
   try {
     await core.executeAsModal(async (ctx) => {
@@ -738,7 +738,7 @@ async function exportPNG(opts) {
   const t = resolveTarget(doc);
   const scope = opts.scope;
   const targetId = scope === "group" ? (t && t.group ? t.group.id : t && t.source ? t.source.id : null) : null;
-  if (scope === "group" && !targetId) { setStatus("Select an MS Render group (or a layer) to export – or choose “All visible layers”.", true); return null; }
+  if (scope === "group" && !targetId) { setStatus("Select an Headliner group (or a layer) to export – or choose “All visible layers”.", true); return null; }
   const file = opts.file || await lfs.getFileForSaving(exportName(doc, t) + ".png", { types: ["png"] });
   if (!file) return null;
   busy = true;
@@ -776,9 +776,9 @@ async function exportPNG(opts) {
         }
         if (!used) throw new Error("Nothing visible to export.");
         info.softPct = Math.round(soft / used * 100);
-        await batchPlay([{ _obj: "make", _target: [{ _ref: "layer" }], using: { _obj: "layer", name: "MS Render Print" } }], {});
+        await batchPlay([{ _obj: "make", _target: [{ _ref: "layer" }], using: { _obj: "layer", name: "Headliner Print" } }], {});
         // Photoshop creates the layer next to the active one – possibly inside a group: move it to the top level
-        const printLayer = allLayers(dup, []).filter((l) => l.name === "MS Render Print" && !l.layers).sort((x, y) => y.id - x.id)[0];
+        const printLayer = allLayers(dup, []).filter((l) => l.name === "Headliner Print" && !l.layers).sort((x, y) => y.id - x.id)[0];
         if (printLayer.parent) await printLayer.move(dup.layers[0], constants.ElementPlacement.PLACEBEFORE);
         const id = await imaging.createImageDataFromBuffer(fromBuf8(rgba, dup), { width: cw, height: ch, components: 4, chunky: true, colorSpace: "RGB", colorProfile: "sRGB IEC61966-2.1" });
         try { await imaging.putPixels({ documentID: dup.id, layerID: printLayer.id, imageData: id, targetBounds: { left: 0, top: 0 } }); } finally { id.dispose(); }
@@ -845,7 +845,7 @@ async function checkAutoUpdate() {
 }
 
 // ---------------------------------------------------------------- keep effect groups clean
-// Photoshop puts a new layer INSIDE the selected group. If that happens with an MS Render group (e.g. you
+// Photoshop puts a new layer INSIDE the selected group. If that happens with an Headliner group (e.g. you
 // create a new text right after rendering), the layer is moved out, above the group, so it stays a normal
 // layer that can get its own effects – and the finished group keeps exactly its render layers + source.
 function renderGroupsIn(container, out) {
@@ -878,7 +878,7 @@ async function ejectForeignLayers() {
       } finally { await ctx.hostControl.resumeHistory(hid); }
     }, { commandName: HIST + " keep layer outside the effect" });
     log("EJECT", jobs.map((j) => ({ group: j.g.name, layers: j.foreign.map((f) => f.name) })));
-    setStatus("New layer moved out of the MS Render group – it's a normal layer again.");
+    setStatus("New layer moved out of the Headliner group – it's a normal layer again.");
   } catch (e) {
     log("eject failed (will retry)", String(e && e.message || e)); // e.g. still typing in the new text
     busy = false;
@@ -889,7 +889,7 @@ async function ejectForeignLayers() {
   return true;
 }
 
-// ---------------------------------------------------------------- settings of the selected effect (Morgenstern-Design, ms-ui.js)
+// ---------------------------------------------------------------- settings of the selected effect (shared design, ui.js)
 function sliderRow(parent, c) {
   const s = UI.slider(parent, { label: c.label, min: c.min, max: c.max, step: c.step, unit: c.unit || "", def: (fxDef() && fxDef().defaults || {})[c.key] }, {
     get: () => curValues()[c.key],
@@ -1001,7 +1001,7 @@ function colorRow(parent, c, allowEmpty) {
 let shownControls = "";
 const MAIN_CONTROLS = 4;
 let moreOpen = false;
-try { moreOpen = localStorage.getItem("msrender.more") === "1"; } catch (e) { /* ignore */ }
+try { moreOpen = localStorage.getItem("headliner.more") === "1"; } catch (e) { /* ignore */ }
 // rebuild the settings when a change shows or hides controls (e.g. material → Custom colours)
 function refreshControlVisibility() {
   const fx = fxDef();
@@ -1036,7 +1036,7 @@ function buildControls() {
       box.appendChild(more);
       toggle.querySelector(".btn").addEventListener("click", () => {
         moreOpen = !moreOpen;
-        try { localStorage.setItem("msrender.more", moreOpen ? "1" : "0"); } catch (e) { /* ignore */ }
+        try { localStorage.setItem("headliner.more", moreOpen ? "1" : "0"); } catch (e) { /* ignore */ }
         buildControls(); syncUI();
       });
       target = more;
@@ -1057,7 +1057,7 @@ function buildControls() {
   $("controlsHint").textContent = hints[fx.id] || "Sizes in % of the text height, so a look scales with your text.";
 }
 // Tabs below the stack: effects, combos, the selected effect's settings, export
-const TAB_KEY = "msrender.tab.v1";
+const TAB_KEY = "headliner.tab.v1";
 function showTab(name) {
   if (!["effects", "combos", "settings", "export"].includes(name)) name = "effects";
   UI.syncSeg($("tabs"), name);
@@ -1096,7 +1096,7 @@ function buildUI() {
   $("render").addEventListener("click", () => applyRender("manual"));
   $("remove").addEventListener("click", removeRender);
   UI.bindSwitch("live", (on) => { liveLast = null; if (on && liveTarget()) applyRender("live"); });
-  UI.bindSwitch("autoUpdate", (on) => { try { localStorage.setItem("msrender.auto", on ? "1" : "0"); } catch (err) { /* ignore */ } });
+  UI.bindSwitch("autoUpdate", (on) => { try { localStorage.setItem("headliner.auto", on ? "1" : "0"); } catch (err) { /* ignore */ } });
   $("resetAll").addEventListener("click", () => {
     toggleTools(false);
     const e = selEntry();
@@ -1110,7 +1110,7 @@ function buildUI() {
     exportPNG({ scope: $("expScope").value, widthCm: isNaN(cm) ? 0 : cm, hard: $("expHard").checked });
   });
   let auto = "1";
-  try { auto = localStorage.getItem("msrender.auto") || "1"; } catch (e) { /* ignore */ }
+  try { auto = localStorage.getItem("headliner.auto") || "1"; } catch (e) { /* ignore */ }
   $("autoUpdate").checked = auto === "1";
   $("bg").value = "0";
   UI.syncSeg($("bgSeg"), "0");
@@ -1131,10 +1131,10 @@ function changed() {
   sendPreviewParams();
   updatePendingUI();
   if (loadingFromLayer || !$("live").checked) return;
-  // Live only updates an existing MS Render group. A plain layer gets effects only by an explicit
+  // Live only updates an existing Headliner group. A plain layer gets effects only by an explicit
   // click (effect tile, look, combo or Apply) – so a new text never picks up an effect by accident.
   if (liveTarget()) debouncedLive();
-  else if (hasTarget()) setStatus("Live updates MS Render groups – click an effect or Apply to add the stack to this layer.");
+  else if (hasTarget()) setStatus("Live updates Headliner groups – click an effect or Apply to add the stack to this layer.");
 }
 
 // ---------------------------------------------------------------- self-test
@@ -1211,7 +1211,7 @@ async function runSelfTest() {
   const renderAndVerify = async (effect, values) => { use(effect, values); await applyRender("manual"); return verify(renderParams()); };
   try {
     await core.executeAsModal(async () => {
-      doc = await app.documents.add({ width: 1400, height: 700, resolution: 72, mode: "RGBColorMode", fill: "white", name: "MS Render Self-test" });
+      doc = await app.documents.add({ width: 1400, height: 700, resolution: 72, mode: "RGBColorMode", fill: "white", name: "Headliner Self-test" });
       await batchPlay([{ _obj: "make", _target: [{ _ref: "textLayer" }], using: { _obj: "textLayer", textKey: "RETRO",
         textClickPoint: { _obj: "paint", horizontal: { _unit: "percentUnit", _value: 22 }, vertical: { _unit: "percentUnit", _value: 55 } },
         textStyleRange: [{ _obj: "textStyleRange", from: 0, to: 5, textStyle: { _obj: "textStyle", size: { _unit: "pointsUnit", _value: 170 }, color: { _obj: "RGBColor", red: 230, grain: 40, blue: 120 } } }] } }], {});

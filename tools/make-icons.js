@@ -2,10 +2,11 @@
 const fs = require("fs"), path = require("path");
 const E = require(path.join(__dirname, "..", "render", "engine.js"));
 const { encodePNG } = require("./png.js");
+const TMP = process.env.ICON_TMP || require("os").tmpdir(); // folder with the letter masks hl-icon-<size>.raw/.dim
 const out = path.join(__dirname, "..", "render", "icons");
 for (const [size, file] of [[23, "icon@1x.png"], [46, "icon@2x.png"], [48, "plugin@1x.png"], [96, "plugin@2x.png"]]) {
-  const [w, h] = fs.readFileSync(`/tmp/msr-icon-${size}.dim`, "utf8").trim().split(/\s+/).map(Number);
-  const a = new Uint8Array(fs.readFileSync(`/tmp/msr-icon-${size}.raw`));
+  const [w, h] = fs.readFileSync(path.join(TMP, `hl-icon-${size}.dim`), "utf8").trim().split(/\s+/).map(Number);
+  const a = new Uint8Array(fs.readFileSync(path.join(TMP, `hl-icon-${size}.raw`)));
   const r = E.renderFromAlpha(a, w, h, { depth: 25, vpY: 260, stroke: 4, shadowX: 0, shadowY: 0 });
   // crop to content and box-downscale to the icon size
   let x0 = r.w, y0 = r.h, x1 = 0, y1 = 0;

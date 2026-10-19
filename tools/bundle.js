@@ -9,7 +9,7 @@ const mods = {};
 const require = (n) => mods[n];
 ${wrap("engine.js")}
 ${wrap("effects.js")}
-window.MSR = { E: mods["./engine.js"], FX: mods["./effects.js"] };
+window.HL = { E: mods["./engine.js"], FX: mods["./effects.js"] };
 })();
 `;
 fs.writeFileSync(path.join(R, "preview", "fx.js"), out);

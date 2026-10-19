@@ -36,7 +36,7 @@ const BG = [0.12 * 255, 0.12 * 255, 0.12 * 255];   // preview background 1
       const got = [];
       window.onPreviewMessage = (m) => got.push(m);
       window.previewHandle({ cmd: "source", w, h, alpha: b64, rgb });
-      const stack = window.MSR.FX.single("chromeExtrude", vals);
+      const stack = window.HL.FX.single("chromeExtrude", vals);
       window.previewHandle({ cmd: "params", stack, sel: stack.entries[0].uid, bg: 1 });
       for (let k = 0; k < 400 && !got.some((m) => m.type === "rendered" || m.type === "error"); k++) await new Promise((r) => setTimeout(r, 25));
       const err = got.find((m) => m.type === "error");

@@ -1,7 +1,7 @@
-// Morgenstern controls – shared by all Morgenstern tools.
+// Shared controls – used by all tools.
 // Deliberately no Photoshop widgets (sp-slider, native checkboxes/selects, Photoshop colour picker by default):
 // own sliders, switches, segments, colour popover, collapsible sections and preset list.
-// The classes match ms-ui.css.
+// The classes match ui.css.
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 

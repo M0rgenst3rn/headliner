@@ -1,5 +1,5 @@
 "use strict";
-// MS Render – CPU engine (final renders + fallback).
+// Headliner – CPU engine (final renders + fallback).
 // Pure JavaScript, no Photoshop dependency: runs in the UXP panel and in Node for tests.
 //
 // Chrome Extrude: perspective extrusion toward a vanishing point (sphere tracing on a distance

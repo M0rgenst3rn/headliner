@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>MS Render showcase</title>
+<title>Headliner showcase</title>
 <style>body { background: #111; color: #ccc; font: 12px -apple-system, sans-serif; } canvas { max-width: 100%; display: block; margin: 8px 0; }</style>
 </head>
 <body>
@@ -11,13 +11,13 @@
 <div id="log">rendering…</div>
 <script src="../render/preview/fx.js"></script>
 <script>
-const { FX } = window.MSR;
+const { FX } = window.HL;
 const FONT = (px) => `italic 900 ${px}px "Arial Black", "Archivo Black", Arial, sans-serif`;
 const LABEL = (px, w) => `${w || 700} ${px}px Arial, sans-serif`;
 const SAVE = new URLSearchParams(location.search).has("save");
 // Supersampling: everything is rendered SC times larger (the effects scale with the text height) and then
 // scaled down to the final size, so edges, bevels and fine lines come out smooth. ?sc=1 for a quick draft.
-const ONLY = new URLSearchParams(location.search).get("only");   // render just one image (e.g. ?only=land)
+const ONLY = new URLSearchParams(location.search).get("only");   // render just one image (e.g. ?only=hero, ?only=land)
 const SC = Math.max(1, Number(new URLSearchParams(location.search).get("sc")) || 3);
 const log = (s) => { document.getElementById("log").textContent = s; };
 
@@ -109,8 +109,8 @@ const ZONE = { base: "replaces the look", behind: "behind", above: "on top" };
 
 async function run() {
   // 1) hero
-  if (!ONLY) {
-    const src = textSource("MS RENDER", 300, "#ffffff");
+  if (!ONLY || ONLY === "hero") {
+    const src = textSource("HEADLINER", 300, "#ffffff");
     const img = compose(src, S([["star", { count: 5, size: 26, glow: 70 }], ["chromeExtrude", { material: "chrome", depth: 24 }], ["glow", { color: "#5aa8ff", size: 12, intensity: 70, core: 20 }]]));
     const c = hiCanvas(1800, 720);
     const x = c.getContext("2d");

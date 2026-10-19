@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>MS Render preview harness</title>
+<title>Headliner preview harness</title>
 <style>
   body { background: #222; color: #ddd; font: 12px -apple-system, sans-serif; margin: 12px; }
   iframe { width: 420px; height: 210px; border: 1px solid #555; display: block; }
@@ -12,14 +12,14 @@
 </style>
 </head>
 <body>
-<h3>MS Render preview harness (emulates the panel)</h3>
+<h3>Headliner preview harness (emulates the panel)</h3>
 <iframe id="wv" src="../render/preview/index.html"></iframe>
 <div id="btns"></div>
 <div id="thumbs"></div>
 <pre id="log"></pre>
 <script src="../render/preview/fx.js"></script>
 <script>
-const { FX } = window.MSR;
+const { FX } = window.HL;
 const log = (s) => { const el = document.getElementById("log"); el.textContent = s + "\n" + el.textContent.slice(0, 4000); };
 const b64 = (u8) => { let s = ""; for (let i = 0; i < u8.length; i += 32768) s += String.fromCharCode.apply(null, u8.subarray(i, i + 32768)); return btoa(s); };
 function textSource(text, size) {

@@ -1,5 +1,5 @@
 "use strict";
-// MS Render – effect registry.
+// Headliner – effect registry.
 // Every effect works on the alpha of the source layer (+ optional source colours) and returns
 // straight-alpha RGBA. "mode" tells the plugin where the result goes:
 //   replace – render shows the whole look, source is hidden   (Chrome Extrude, Inflate, Bevel, Glass, Halftone, textures)

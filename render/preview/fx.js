@@ -4,7 +4,7 @@ const mods = {};
 const require = (n) => mods[n];
 mods["./engine.js"] = (function () { const module = { exports: {} }; const exports = module.exports;
 "use strict";
-// MS Render – CPU engine (final renders + fallback).
+// Headliner – CPU engine (final renders + fallback).
 // Pure JavaScript, no Photoshop dependency: runs in the UXP panel and in Node for tests.
 //
 // Chrome Extrude: perspective extrusion toward a vanishing point (sphere tracing on a distance
@@ -593,12 +593,12 @@ return module.exports; })();
 
 mods["./effects.js"] = (function () { const module = { exports: {} }; const exports = module.exports;
 "use strict";
-// MS Render – effect registry (Phase 2).
+// Headliner – effect registry.
 // Every effect works on the alpha of the source layer (+ optional source colours) and returns
 // straight-alpha RGBA. "mode" tells the plugin where the result goes:
-//   replace – render shows the whole look, source is hidden   (Chrome Extrude, Inflate, Bevel, Glass)
-//   behind  – render sits below the visible source             (Shadow, Glow, Fire, Smoke, Motion Trail)
-//   above   – render sits on top of the visible source         (Drip, Icicles, Snow, Water Drops, Electrify)
+//   replace – render shows the whole look, source is hidden   (Chrome Extrude, Inflate, Bevel, Glass, Halftone, textures)
+//   behind  – render sits below the visible source             (Shadow, Glow, Corona, Backlight, Fire, Smoke, Motion Trail, Retro Stack, Sticker)
+//   above   – render sits on top of the visible source         (Lightning, Electrify, Star, Snow, Water Drops)
 // All sizes are in % of the text height so a look scales with the text.
 
 const E = require("./engine.js");
@@ -2101,5 +2101,5 @@ module.exports = {
 
 return module.exports; })();
 
-window.MSR = { E: mods["./engine.js"], FX: mods["./effects.js"] };
+window.HL = { E: mods["./engine.js"], FX: mods["./effects.js"] };
 })();

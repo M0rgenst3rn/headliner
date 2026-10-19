@@ -1,4 +1,4 @@
-/* Morgenstern design – shared by all Morgenstern tools (matches ms-ui.js)
+/* Shared design – used by all tools (matches ui.js)
    Calm, dark, precise – and exactly one colour that glows: a deep electric blue.
    Base       #070a12   Surface #0d1220   Line   #1e2740
    Text       #e6ebf7   Text 2  #a7b1ca   muted     #7e89a6
@@ -26,7 +26,6 @@ b, strong { font-weight: 600; color: #e6ebf7; }
 .header { display: flex; flex-direction: row; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .brand { display: flex; flex-direction: row; align-items: center; }
 .dot { width: 8px; height: 8px; border-radius: 4px; background-color: #2f5bff; border: 1px solid #7b9cff; margin-right: 8px; box-shadow: 0 0 10px rgba(47, 91, 255, 0.9); }
-.brand-ms { font-size: 12px; font-weight: bold; letter-spacing: 1px; color: #7b9cff; margin-right: 5px; }
 .brand-name { font-size: 12px; font-weight: 600; color: #e6ebf7; }
 .target-name { color: #7e89a6; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 

@@ -1,25 +1,25 @@
 <p align="center">
-  <img src="docs/images/hero.png" alt="Morgenstern Render" width="100%">
+  <img src="docs/images/hero.png" alt="Headliner" width="100%">
 </p>
 
 <p align="center">
   <b>Retro and modern 3D text effects for Photoshop: chrome, gold, fire, lightning, glow and much more.<br>
   Rendered straight from your live text – the text stays editable.</b><br>
   <sub>Photoshop 2023 (24.2) or newer · UXP panel</sub><br>
-  <sub>Free tools by <b>Morgenstern</b> · <a href="https://github.com/M0rgenst3rn/ms-distress">Morgenstern Distress</a> · <a href="https://github.com/M0rgenst3rn/ms-printer">Morgenstern Printer</a> · <b>Morgenstern Render</b> · <a href="https://github.com/M0rgenst3rn/ms-phase">Morgenstern Phase</a> · <a href="https://github.com/M0rgenst3rn/ms-glow">Morgenstern Glow</a> · <a href="https://github.com/M0rgenst3rn/ms-gradients">Morgenstern Gradients</a> · <a href="https://github.com/M0rgenst3rn/ms-grids">Morgenstern Grids</a></sub>
+  <sub>More tools by <b>Linus Leinberger</b> · <a href="https://github.com/M0rgenst3rn/afterglow">Afterglow</a> · <a href="https://github.com/M0rgenst3rn/asciiwave">Asciiwave</a> · <a href="https://github.com/M0rgenst3rn/gradient-library">Gradient Library</a> · <a href="https://github.com/M0rgenst3rn/gridwork">Gridwork</a> · <a href="https://github.com/M0rgenst3rn/grime">Grime</a> · <b>Headliner</b> · <a href="https://github.com/M0rgenst3rn/misprint">Misprint</a> · <a href="https://github.com/M0rgenst3rn/seamline">Seamline</a> · <a href="https://github.com/M0rgenst3rn/vhold">Vhold</a></sub>
 </p>
 
 ---
 
-## What is Morgenstern Render?
+## What is Headliner?
 
-Morgenstern Render is a panel plugin for Adobe Photoshop, made for t-shirt designs, logos and titles. Pick a
+Headliner is a panel plugin for Adobe Photoshop, made for t-shirt designs, logos and titles. Pick a
 text or shape layer, click an effect, and you get a finished look – 80s chrome with perspective, fire, neon
 glow or lightning. Effects can be **stacked** like layers. **16 combos** give you ready-made combinations.
 
 Everything is computed procedurally, without image files, and stays sharp at any resolution. The result lands
 as real layers in a group. Your original layer stays inside it and stays editable: change the text and
-Morgenstern Render recomputes the effect automatically.
+Headliner recomputes the effect automatically.
 
 ### Highlights
 
@@ -145,7 +145,7 @@ In the **Export** tab you save the selected group or all visible layers as PNG:
    ```bash
    bash install-mac.sh
    ```
-3. (Re)start Photoshop → **Plugins › MS Render**
+3. (Re)start Photoshop → **Plugins › Headliner**
 
 The script needs [Node.js](https://nodejs.org) for the preview's bundle step.
 
@@ -160,7 +160,7 @@ The script needs [Node.js](https://nodejs.org) for the preview's bundle step.
 
 1. **Pick a layer**: select a text or shape layer. The gallery immediately shows every effect with your text
 2. **Click an effect, look or combo**: the effect is applied right away. A group
-   *"MS Render · …"* is created with your layer and one layer per effect
+   *"Headliner · …"* is created with your layer and one layer per effect
 3. **Adjust**: fine-tune in the *Settings* tab or by dragging in the preview, then **Update** (**Apply** on a
    layer without effects yet). A dot on the button means there are changes that aren't applied yet
    - **Live** applies changes right away
@@ -181,7 +181,7 @@ The script needs [Node.js](https://nodejs.org) for the preview's bundle step.
 render/              The plugin (loaded into Photoshop as is)
   manifest.json      Plugin description
   index.html         Panel UI
-  ms-ui.js/.css      Shared Morgenstern controls and design
+  ui.js/.css      Shared controls and design
   styles.css         Panel layout (tabs, stack, gallery)
   icons/             Plugin icons and colour-wheel images
   main.js            Photoshop side (group, XMP, live text, export, self-test)
@@ -209,7 +209,7 @@ result. It creates its own test document for that.
 
 ## Found a bug? Got an idea?
 
-Get in touch! The easiest way is **[Issues](https://github.com/M0rgenst3rn/ms-render/issues)** here on GitHub:
+Get in touch! The easiest way is **[Issues](https://github.com/M0rgenst3rn/headliner/issues)** here on GitHub:
 click **New issue** and briefly describe what happened. Your Photoshop version, operating system and a
 screenshot help a lot. All you need is a free GitHub account. Suggestions and feature requests are just as
 welcome.
@@ -227,5 +227,5 @@ Adobe and Photoshop are trademarks of Adobe Inc. This project is independent and
 
 ---
 
-<p align="center"><sub>Morgenstern Render<br>
-Made by Linus Leinberger</sub></p>
+<p align="center"><sub>Headliner<br>
+Made by Linus Leinberger · <a href="https://www.instagram.com/linusleinberger">Instagram @linusleinberger</a></sub></p>

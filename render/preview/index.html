@@ -19,12 +19,12 @@
 <div id="hint"></div>
 <script src="fx.js"></script>
 <script>
-// MS Render – live preview + gallery thumbnails.
+// Headliner – live preview + gallery thumbnails.
 // Chrome Extrude renders on the GPU (WebGL 2, milliseconds). All other effects use the shared CPU
 // engine (fx.js = engine.js + effects.js) at preview size. A transparent overlay draws guides and
 // lets the user drag the vanishing point / direction.
 "use strict";
-const { E, FX } = window.MSR;
+const { E, FX } = window.HL;
 const canvas = document.getElementById("c"), c2 = document.getElementById("c2"), ov = document.getElementById("ov");
 const msg = document.getElementById("msg"), hint = document.getElementById("hint");
 const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false });
