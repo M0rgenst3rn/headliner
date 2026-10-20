@@ -140,14 +140,19 @@ In the **Export** tab you save the selected group or all visible layers as PNG:
 
 ### macOS (recommended)
 
-1. Download the repository (**Code → Download ZIP**) and unzip it
-2. Run this in Terminal inside the unzipped folder:
-   ```bash
-   bash install-mac.sh
-   ```
-3. (Re)start Photoshop → **Plugins › Headliner**
+Open Terminal, paste this and press Enter. It downloads the plugin to your Downloads folder,
+unzips it and installs it:
+
+```bash
+cd ~/Downloads && curl -fL -o headliner.zip https://github.com/M0rgenst3rn/headliner/archive/refs/heads/main.zip && unzip -oq headliner.zip && cd headliner-main && bash install-mac.sh
+```
+
+Then start Photoshop → **Plugins › Headliner**
 
 The script needs [Node.js](https://nodejs.org) for the preview's bundle step.
+
+Prefer to do it by hand? Click **Code → Download ZIP**, unzip it, open Terminal in the unzipped folder and run
+`bash install-mac.sh`.
 
 ### Alternative: UXP Developer Tool (macOS & Windows)
 
